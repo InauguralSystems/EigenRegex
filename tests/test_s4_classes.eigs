@@ -1,0 +1,133 @@
+# S4: char classes . [abc] [^abc] [a-z]
+
+load_file of "lib/regex.eigs"
+
+define check(label, got, want) as:
+    if got == want:
+        print of (label + " OK")
+    else:
+        print of (label + " FAIL")
+        print of "  got:"
+        print of got
+        print of "  want:"
+        print of want
+    return 0
+
+# ---- dot: any char except newline ----
+prog is re_compile of "."
+check of [". matches a", re_match of [prog, "a"], 1]
+check of [". matches space", re_match of [prog, " "], 1]
+check of [". matches digit", re_match of [prog, "7"], 1]
+check of [". does not match empty", re_match of [prog, ""], 0]
+check of [". does not match newline", re_match of [prog, "\n"], 0]
+
+prog is re_compile of "a.c"
+check of ["a.c matches abc", re_match of [prog, "abc"], 1]
+check of ["a.c matches a c", re_match of [prog, "a c"], 1]
+check of ["a.c matches a c", re_match of [prog, "a9c"], 1]
+check of ["a.c does not match ac", re_match of [prog, "ac"], 0]
+check of ["a.c does not match abbc", re_match of [prog, "abbc"], 0]
+
+# ---- dot with repetition ----
+prog is re_compile of "a.*b"
+check of ["a.*b matches ab", re_match of [prog, "ab"], 1]
+check of ["a.*b matches axb", re_match of [prog, "axb"], 1]
+check of ["a.*b matches axxxxb", re_match of [prog, "axxxxb"], 1]
+check of ["a.*b does not match acrossnewline", re_match of [prog, "a\nb"], 0]
+
+# ---- positive class ----
+prog is re_compile of "[abc]"
+check of ["[abc] matches a", re_match of [prog, "a"], 1]
+check of ["[abc] matches b", re_match of [prog, "b"], 1]
+check of ["[abc] matches c", re_match of [prog, "c"], 1]
+check of ["[abc] does not match d", re_match of [prog, "d"], 0]
+check of ["[abc] does not match empty", re_match of [prog, ""], 0]
+check of ["[abc] does not match A", re_match of [prog, "A"], 0]
+
+# ---- negative class ----
+prog is re_compile of "[^abc]"
+check of ["[^abc] does not match a", re_match of [prog, "a"], 0]
+check of ["[^abc] does not match b", re_match of [prog, "b"], 0]
+check of ["[^abc] does not match c", re_match of [prog, "c"], 0]
+check of ["[^abc] matches d", re_match of [prog, "d"], 1]
+check of ["[^abc] matches A", re_match of [prog, "A"], 1]
+check of ["[^abc] matches digit", re_match of [prog, "5"], 1]
+
+# ---- range ----
+prog is re_compile of "[a-z]"
+check of ["[a-z] matches a", re_match of [prog, "a"], 1]
+check of ["[a-z] matches m", re_match of [prog, "m"], 1]
+check of ["[a-z] matches z", re_match of [prog, "z"], 1]
+check of ["[a-z] does not match A", re_match of [prog, "A"], 0]
+check of ["[a-z] does not match 5", re_match of [prog, "5"], 0]
+
+prog is re_compile of "[0-9]"
+check of ["[0-9] matches 0", re_match of [prog, "0"], 1]
+check of ["[0-9] matches 5", re_match of [prog, "5"], 1]
+check of ["[0-9] matches 9", re_match of [prog, "9"], 1]
+check of ["[0-9] does not match a", re_match of [prog, "a"], 0]
+check of ["[0-9] does not match /", re_match of [prog, "/"], 0]
+check of ["[0-9] does not match :", re_match of [prog, ":"], 0]
+
+# ---- mixed singles + ranges ----
+prog is re_compile of "[a-zA-Z0-9_]"
+check of ["[a-zA-Z0-9_] matches a", re_match of [prog, "a"], 1]
+check of ["[a-zA-Z0-9_] matches Z", re_match of [prog, "Z"], 1]
+check of ["[a-zA-Z0-9_] matches 0", re_match of [prog, "0"], 1]
+check of ["[a-zA-Z0-9_] matches _", re_match of [prog, "_"], 1]
+check of ["[a-zA-Z0-9_] does not match -", re_match of [prog, "-"], 0]
+check of ["[a-zA-Z0-9_] does not match space", re_match of [prog, " "], 0]
+
+# ---- trailing hyphen is literal ----
+prog is re_compile of "[a-]"
+check of ["[a-] matches a", re_match of [prog, "a"], 1]
+check of ["[a-] matches -", re_match of [prog, "-"], 1]
+check of ["[a-] does not match b", re_match of [prog, "b"], 0]
+
+# ---- negated range ----
+prog is re_compile of "[^0-9]"
+check of ["[^0-9] does not match 0", re_match of [prog, "0"], 0]
+check of ["[^0-9] does not match 9", re_match of [prog, "9"], 0]
+check of ["[^0-9] matches a", re_match of [prog, "a"], 1]
+check of ["[^0-9] matches space", re_match of [prog, " "], 1]
+
+# ---- class with repetition (identifier shape) ----
+prog is re_compile of "[a-zA-Z_][a-zA-Z0-9_]*"
+check of ["ident matches foo", re_match of [prog, "foo"], 1]
+check of ["ident matches _x1", re_match of [prog, "_x1"], 1]
+check of ["ident matches X", re_match of [prog, "X"], 1]
+check of ["ident does not match 1foo", re_match of [prog, "1foo"], 0]
+check of ["ident does not match empty", re_match of [prog, ""], 0]
+
+# ---- class search end positions ----
+prog is re_compile of "[0-9]+"
+r is re_search of [prog, "abc123def"]
+check of ["digit run starts at 3", r[0], 3]
+check of ["digit run ends at 6", r[1], 6]
+
+# ---- find_all over identifier-like tokens ----
+prog is re_compile of "[a-z]+"
+all is re_find_all of [prog, "x = foo + bar2"]
+check of ["find_all [a-z]+ count", len of all, 3]
+check of ["find_all first ends at 1", all[0][1], 1]
+check of ["find_all second ends at 7", all[1][1], 7]
+check of ["find_all third ends at 13", all[2][1], 13]
+
+# ---- parse errors ----
+prog is re_compile of "["
+check of ["bare [ returns null", prog, null]
+
+prog is re_compile of "[abc"
+check of ["unclosed [ returns null", prog, null]
+
+prog is re_compile of "[z-a]"
+check of ["reversed range returns null", prog, null]
+
+prog is re_compile of "[]"
+check of ["empty class returns null", prog, null]
+
+prog is re_compile of "]"
+check of ["stray ] returns null", prog, null]
+
+print of "==="
+print of "all S4 checks emitted"

@@ -1,0 +1,78 @@
+# ============================================================
+# EigenRegex — Pike-VM regex engine (public API)
+# ============================================================
+#
+# Note: EigenScript already exposes `regex_match` / `regex_find` /
+# `regex_replace` as builtins backed by libc POSIX regex. This library
+# uses the `re_*` prefix to avoid shadowing those. The two coexist:
+#   - builtin  → fast (native C), POSIX ERE features, but can backtrack
+#                catastrophically on adversarial patterns.
+#   - re_*     → guaranteed O(n·m) (no backtracking), exposes captures
+#                as positional spans, slower but predictable.
+#
+# How to use:
+#   load_file of "lib/regex.eigs"
+#
+#   prog is re_compile of "ab|cd"
+#   ok   is re_match of [prog, "ab"]
+#   span is re_search of [prog, "...ab..."]
+#   all  is re_find_all of [prog, "abcdab"]
+#
+# A compiled program is {"code": [...], "n_slots": N}; see
+# lib/regex_compile.eigs for the instruction encoding.
+
+load_file of "lib/regex_parse.eigs"
+load_file of "lib/regex_compile.eigs"
+load_file of "lib/regex_vm.eigs"
+
+# ---- re_compile: pattern → program ----
+# Returns null on parse error.
+define re_compile(pattern) as:
+    ast is regex_parse of pattern
+    if ast == null:
+        return null
+    return regex_compile_ast of ast
+
+# ---- re_match: anchored full-string match ----
+# Returns 1 if pattern matches the entire string, else 0.
+define re_match(args) as:
+    prog is args[0]
+    text is args[1]
+    if prog == null:
+        return 0
+    caps is regex_vm_run of [prog, text, 0, 1]
+    if caps == null:
+        return 0
+    return 1
+
+# ---- re_search: leftmost match anywhere in the string ----
+# Returns [start, end, g1s, g1e, g2s, g2e, ...] or null. Non-participating
+# groups report -1, -1.
+define re_search(args) as:
+    prog is args[0]
+    text is args[1]
+    if prog == null:
+        return null
+    return regex_vm_run of [prog, text, 0, 0]
+
+# ---- re_find_all: all non-overlapping matches ----
+# Returns a list of capture lists (same shape as re_search results).
+define re_find_all(args) as:
+    prog is args[0]
+    text is args[1]
+    results is []
+    if prog == null:
+        return results
+    pos is 0
+    n is len of text
+    loop while pos <= n:
+        caps is regex_vm_run of [prog, text, pos, 0]
+        if caps == null:
+            return results
+        append of [results, caps]
+        # Advance past the match to avoid infinite loops on zero-width matches.
+        if caps[1] > caps[0]:
+            pos is caps[1]
+        else:
+            pos is caps[0] + 1
+    return results

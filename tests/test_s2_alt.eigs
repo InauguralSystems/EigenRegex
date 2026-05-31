@@ -1,0 +1,85 @@
+# S2: alternation | and grouping ()
+
+load_file of "lib/regex.eigs"
+
+failures is 0
+
+define check(label, got, want) as:
+    if got == want:
+        print of (label + " OK")
+    else:
+        print of (label + " FAIL")
+        print of "  got:"
+        print of got
+        print of "  want:"
+        print of want
+    return 0
+
+# ---- 2-way alternation ----
+prog is re_compile of "a|b"
+check of ["a|b matches a", re_match of [prog, "a"], 1]
+check of ["a|b matches b", re_match of [prog, "b"], 1]
+check of ["a|b does not match c", re_match of [prog, "c"], 0]
+check of ["a|b does not match empty", re_match of [prog, ""], 0]
+
+# ---- 3-way alternation ----
+prog is re_compile of "cat|dog|fish"
+check of ["cat|dog|fish matches cat", re_match of [prog, "cat"], 1]
+check of ["cat|dog|fish matches dog", re_match of [prog, "dog"], 1]
+check of ["cat|dog|fish matches fish", re_match of [prog, "fish"], 1]
+check of ["cat|dog|fish does not match bird", re_match of [prog, "bird"], 0]
+
+# ---- alternation with shared prefix ----
+prog is re_compile of "abc|abd"
+check of ["abc|abd matches abc", re_match of [prog, "abc"], 1]
+check of ["abc|abd matches abd", re_match of [prog, "abd"], 1]
+check of ["abc|abd does not match abe", re_match of [prog, "abe"], 0]
+
+# ---- grouping ----
+prog is re_compile of "(abc)"
+check of ["(abc) matches abc", re_match of [prog, "abc"], 1]
+check of ["(abc) does not match ab", re_match of [prog, "ab"], 0]
+
+# ---- grouping with concat ----
+prog is re_compile of "a(bc|de)f"
+check of ["a(bc|de)f matches abcf", re_match of [prog, "abcf"], 1]
+check of ["a(bc|de)f matches adef", re_match of [prog, "adef"], 1]
+check of ["a(bc|de)f does not match abef", re_match of [prog, "abef"], 0]
+check of ["a(bc|de)f does not match abcef", re_match of [prog, "abcef"], 0]
+
+# ---- nested grouping ----
+prog is re_compile of "((a|b)c)"
+check of ["((a|b)c) matches ac", re_match of [prog, "ac"], 1]
+check of ["((a|b)c) matches bc", re_match of [prog, "bc"], 1]
+check of ["((a|b)c) does not match cc", re_match of [prog, "cc"], 0]
+
+# ---- empty alternative ----
+prog is re_compile of "a|"
+check of ["a| matches a", re_match of [prog, "a"], 1]
+check of ["a| matches empty", re_match of [prog, ""], 1]
+check of ["a| does not match b (anchored)", re_match of [prog, "b"], 0]
+
+# ---- search with alternation ----
+prog is re_compile of "cat|dog"
+r is re_search of [prog, "I saw a cat there"]
+check of ["search alt finds cat at pos 8", r[0], 8]
+check of ["search alt end at pos 11", r[1], 11]
+
+r is re_search of [prog, "the dog runs"]
+check of ["search alt finds dog at pos 4", r[0], 4]
+check of ["search alt end at pos 7", r[1], 7]
+
+# ---- find_all with alternation ----
+prog is re_compile of "a|b"
+all is re_find_all of [prog, "axbya"]
+check of ["find_all a|b count", len of all, 3]
+
+# ---- parse error: unmatched paren ----
+prog is re_compile of "(abc"
+check of ["unmatched ( returns null", prog, null]
+
+prog is re_compile of "abc)"
+check of ["stray ) returns null", prog, null]
+
+print of "==="
+print of "all S2 checks emitted"

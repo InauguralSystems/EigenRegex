@@ -1,0 +1,41 @@
+# S0 smoke test: load the module and exercise the public API end-to-end.
+
+load_file of "lib/regex.eigs"
+
+failures is 0
+
+# ---- re_compile of empty pattern should return non-null ----
+prog is re_compile of ""
+if prog == null:
+    print of "FAIL: re_compile of empty returned null"
+    failures is failures + 1
+else:
+    print of "OK: re_compile of empty returned program"
+
+# ---- re_match: empty pattern matches empty string (anchored) ----
+m is re_match of [prog, ""]
+if m != 1:
+    print of "FAIL: empty pattern should match empty string"
+    failures is failures + 1
+else:
+    print of "OK: empty pattern matches empty string"
+
+# ---- re_search should return a span ----
+s is re_search of [prog, "anything"]
+if s == null:
+    print of "FAIL: re_search returned null"
+    failures is failures + 1
+else:
+    print of "OK: re_search returned span"
+
+# ---- re_find_all should return at least one match for any text ----
+all is re_find_all of [prog, "abc"]
+if (len of all) == 0:
+    print of "FAIL: re_find_all returned empty"
+    failures is failures + 1
+else:
+    print of "OK: re_find_all returned matches"
+
+print of "==="
+print of "failures:"
+print of failures

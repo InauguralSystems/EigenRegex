@@ -1,0 +1,230 @@
+# ============================================================
+# EigenRegex — pattern parser (pattern string → AST)
+# ============================================================
+#
+# AST node encoding (lists, tag in slot 0):
+#   ["lit", c]                        — single character literal (c is 1-char string)
+#   ["concat", [child, child, ...]]   — sequence
+#   ["alt", [child, child, ...]]      — alternation
+#   ["star", child]                   — zero or more (greedy)
+#   ["star_lazy", child]              — zero or more (lazy)
+#   ["plus", child]                   — one or more (greedy)
+#   ["plus_lazy", child]              — one or more (lazy)
+#   ["quest", child]                  — zero or one (greedy)
+#   ["quest_lazy", child]             — zero or one (lazy)
+#   ["dot"]                           — any char except newline (S4)
+#   ["class", neg, [[lo, hi], ...]]   — char class with ranges (S4)
+#   ["anchor", which]                 — "start" or "end" (S5)
+#   ["group", index, child]           — capture group (S5; non-capturing in S2)
+#   ["empty"]                         — epsilon
+#
+# Grammar (S5):
+#   alt    → concat ('|' concat)*
+#   concat → quant*
+#   quant  → atom postfix?
+#   postfix → '*' | '*?' | '+' | '+?' | '?' | '??'
+#   atom   → literal | '.' | '^' | '$' | '[' class ']' | '(' alt ')'
+#   class  → '^'? class_atom+
+#   class_atom → char | char '-' char
+#
+# Reserved metacharacters in S5: '|', '(', ')', '*', '+', '?', '.', '[', ']', '^', '$'.
+# Note: '^' inside a char class means negation (handled in _parse_class); at the
+# atom level it means start-of-string anchor.
+
+# ---- _peek: current char or "" at EOF ----
+define _peek(st) as:
+    if st["pos"] >= (len of st["src"]):
+        return ""
+    return char_at of [st["src"], st["pos"]]
+
+# ---- _advance: consume and return current char ----
+define _advance(st) as:
+    c is _peek of st
+    st["pos"] is st["pos"] + 1
+    return c
+
+# ---- _is_metachar: is c a reserved metacharacter? (S4 set) ----
+define _is_metachar(c) as:
+    if c == "|":
+        return 1
+    if c == "(":
+        return 1
+    if c == ")":
+        return 1
+    if c == "*":
+        return 1
+    if c == "+":
+        return 1
+    if c == "?":
+        return 1
+    if c == ".":
+        return 1
+    if c == "[":
+        return 1
+    if c == "]":
+        return 1
+    if c == "^":
+        return 1
+    if c == "$":
+        return 1
+    return 0
+
+# Forward declarations via mutual recursion are fine in EigenScript
+# (load order doesn't matter for function refs resolved at call time).
+
+# ---- _parse_class: '[' '^'? (char ('-' char)?)+ ']' ----
+# Encodes the body as a list of [lo, hi] code-point ranges (single chars
+# become [c, c]). A leading '^' flips `neg` to 1. A trailing '-' before
+# ']' is treated as a literal '-' (45) — keeps the common "[a-z-]" pattern
+# parseable without forcing an escape.
+define _parse_class(st) as:
+    _advance of st
+    neg is 0
+    if (_peek of st) == "^":
+        _advance of st
+        neg is 1
+    ranges is []
+    loop while 1:
+        c is _peek of st
+        if c == "":
+            return null
+        if c == "]":
+            _advance of st
+            break
+        lo_c is _advance of st
+        lo is ord of lo_c
+        if lo < 0:
+            return null
+        if (_peek of st) == "-":
+            _advance of st
+            if (_peek of st) == "]":
+                append of [ranges, [lo, lo]]
+                append of [ranges, [45, 45]]
+                _advance of st
+                break
+            hi_c is _advance of st
+            hi is ord of hi_c
+            if hi < 0:
+                return null
+            if hi < lo:
+                return null
+            append of [ranges, [lo, hi]]
+        else:
+            append of [ranges, [lo, lo]]
+    if (len of ranges) == 0:
+        return null
+    return ["class", neg, ranges]
+
+# ---- _parse_atom: literal | '.' | '^' | '$' | '[' class ']' | '(' alt ')' ----
+# Group index is allocated by opening-paren order (PCRE convention). We bump
+# st["groups"] *before* recursing so nested groups get higher indices than the
+# enclosing one, matching what users expect from r[2*i+2..2*i+3] in the result.
+define _parse_atom(st) as:
+    c is _peek of st
+    if c == "":
+        return null
+    if c == "(":
+        _advance of st
+        idx is st["groups"]
+        st["groups"] is st["groups"] + 1
+        inner is _parse_alt of st
+        if inner == null:
+            return null
+        if (_peek of st) != ")":
+            return null
+        _advance of st
+        return ["group", idx, inner]
+    if c == ".":
+        _advance of st
+        return ["dot"]
+    if c == "^":
+        _advance of st
+        return ["anchor", "start"]
+    if c == "$":
+        _advance of st
+        return ["anchor", "end"]
+    if c == "[":
+        return _parse_class of st
+    if _is_metachar of c:
+        return null
+    _advance of st
+    return ["lit", c]
+
+# ---- _parse_quant: atom optionally followed by *, *?, +, +?, ?, ?? ----
+# Greedy variants prefer to consume; lazy variants prefer to stop.
+# Encoded by the order of split targets in the compiler.
+define _parse_quant(st) as:
+    atom is _parse_atom of st
+    if atom == null:
+        return null
+    c is _peek of st
+    if c == "*":
+        _advance of st
+        if (_peek of st) == "?":
+            _advance of st
+            return ["star_lazy", atom]
+        return ["star", atom]
+    if c == "+":
+        _advance of st
+        if (_peek of st) == "?":
+            _advance of st
+            return ["plus_lazy", atom]
+        return ["plus", atom]
+    if c == "?":
+        _advance of st
+        if (_peek of st) == "?":
+            _advance of st
+            return ["quest_lazy", atom]
+        return ["quest", atom]
+    return atom
+
+# ---- _parse_concat: zero or more quantified atoms, stop at |, ), EOF ----
+define _parse_concat(st) as:
+    parts is []
+    loop while 1:
+        c is _peek of st
+        if c == "":
+            break
+        if c == "|":
+            break
+        if c == ")":
+            break
+        q is _parse_quant of st
+        if q == null:
+            return null
+        append of [parts, q]
+    if (len of parts) == 0:
+        return ["empty"]
+    if (len of parts) == 1:
+        return parts[0]
+    return ["concat", parts]
+
+# ---- _parse_alt: one or more concats separated by | ----
+define _parse_alt(st) as:
+    first is _parse_concat of st
+    if first == null:
+        return null
+    branches is [first]
+    loop while (_peek of st) == "|":
+        _advance of st
+        nxt is _parse_concat of st
+        if nxt == null:
+            return null
+        append of [branches, nxt]
+    if (len of branches) == 1:
+        return first
+    return ["alt", branches]
+
+# ---- regex_parse: entry point ----
+define regex_parse(pattern) as:
+    st is {}
+    st["src"] is pattern
+    st["pos"] is 0
+    st["groups"] is 0
+    ast is _parse_alt of st
+    if ast == null:
+        return null
+    if (_peek of st) != "":
+        # unconsumed input — usually a stray ')' or similar
+        return null
+    return ast

@@ -1,0 +1,160 @@
+# S5: anchors ^ $ and capture groups
+
+load_file of "lib/regex.eigs"
+
+define check(label, got, want) as:
+    if got == want:
+        print of (label + " OK")
+    else:
+        print of (label + " FAIL")
+        print of "  got:"
+        print of got
+        print of "  want:"
+        print of want
+    return 0
+
+# ---- start anchor ^ ----
+prog is re_compile of "^abc"
+check of ["^abc matches abc anchored", re_match of [prog, "abc"], 1]
+r is re_search of [prog, "abc"]
+check of ["^abc search start", r[0], 0]
+check of ["^abc search end", r[1], 3]
+r is re_search of [prog, "xabc"]
+check of ["^abc search xabc returns null", r, null]
+r is re_search of [prog, "abcx"]
+check of ["^abc search abcx start", r[0], 0]
+check of ["^abc search abcx end", r[1], 3]
+
+# ---- end anchor $ ----
+prog is re_compile of "abc$"
+check of ["abc$ matches abc anchored", re_match of [prog, "abc"], 1]
+r is re_search of [prog, "xxabc"]
+check of ["abc$ finds tail start", r[0], 2]
+check of ["abc$ finds tail end", r[1], 5]
+r is re_search of [prog, "abcx"]
+check of ["abc$ rejects mid-string", r, null]
+
+# ---- full anchor ^...$ ----
+prog is re_compile of "^abc$"
+check of ["^abc$ matches abc", re_match of [prog, "abc"], 1]
+check of ["^abc$ rejects abcx", re_match of [prog, "abcx"], 0]
+check of ["^abc$ rejects xabc", re_match of [prog, "xabc"], 0]
+r is re_search of [prog, "abc"]
+check of ["^abc$ search abc end", r[1], 3]
+r is re_search of [prog, "xabcx"]
+check of ["^abc$ search xabcx returns null", r, null]
+
+# ---- ^$ matches empty only ----
+prog is re_compile of "^$"
+check of ["^$ matches empty", re_match of [prog, ""], 1]
+check of ["^$ rejects x", re_match of [prog, "x"], 0]
+r is re_search of [prog, ""]
+check of ["^$ search empty start", r[0], 0]
+check of ["^$ search empty end", r[1], 0]
+
+# ---- bare ^ and $ ----
+prog is re_compile of "^"
+r is re_search of [prog, "abc"]
+check of ["bare ^ search start", r[0], 0]
+check of ["bare ^ search end", r[1], 0]
+
+prog is re_compile of "$"
+r is re_search of [prog, "abc"]
+check of ["bare $ search start", r[0], 3]
+check of ["bare $ search end", r[1], 3]
+
+# ---- single capture ----
+prog is re_compile of "(a)b"
+r is re_search of [prog, "ab"]
+check of ["(a)b overall start", r[0], 0]
+check of ["(a)b overall end", r[1], 2]
+check of ["(a)b group1 start", r[2], 0]
+check of ["(a)b group1 end", r[3], 1]
+
+# ---- multiple captures ----
+prog is re_compile of "(a)(b)(c)"
+r is re_search of [prog, "abc"]
+check of ["(a)(b)(c) overall start", r[0], 0]
+check of ["(a)(b)(c) overall end", r[1], 3]
+check of ["(a)(b)(c) g1 start", r[2], 0]
+check of ["(a)(b)(c) g1 end", r[3], 1]
+check of ["(a)(b)(c) g2 start", r[4], 1]
+check of ["(a)(b)(c) g2 end", r[5], 2]
+check of ["(a)(b)(c) g3 start", r[6], 2]
+check of ["(a)(b)(c) g3 end", r[7], 3]
+
+# ---- capture inside repetition: last iteration wins ----
+prog is re_compile of "(ab)+"
+r is re_search of [prog, "abab"]
+check of ["(ab)+ overall start", r[0], 0]
+check of ["(ab)+ overall end", r[1], 4]
+check of ["(ab)+ last iter start", r[2], 2]
+check of ["(ab)+ last iter end", r[3], 4]
+
+# ---- nested captures ----
+prog is re_compile of "((ab)+)c"
+r is re_search of [prog, "ababc"]
+check of ["((ab)+)c overall end", r[1], 5]
+check of ["((ab)+)c outer g1 start", r[2], 0]
+check of ["((ab)+)c outer g1 end", r[3], 4]
+check of ["((ab)+)c inner g2 start", r[4], 2]
+check of ["((ab)+)c inner g2 end", r[5], 4]
+
+# ---- alternation: non-participating group reports -1 -1 ----
+prog is re_compile of "(a)|(b)"
+r is re_search of [prog, "a"]
+check of ["(a)|(b) on a g1", r[2], 0]
+check of ["(a)|(b) on a g1 end", r[3], 1]
+check of ["(a)|(b) on a g2 missing start", r[4], -1]
+check of ["(a)|(b) on a g2 missing end", r[5], -1]
+
+r is re_search of [prog, "b"]
+check of ["(a)|(b) on b g1 missing start", r[2], -1]
+check of ["(a)|(b) on b g1 missing end", r[3], -1]
+check of ["(a)|(b) on b g2 start", r[4], 0]
+check of ["(a)|(b) on b g2 end", r[5], 1]
+
+# ---- capture with char classes + greedy .* ----
+prog is re_compile of "(.*)world"
+r is re_search of [prog, "hello world"]
+check of ["(.*)world overall end", r[1], 11]
+check of ["(.*)world g1 start", r[2], 0]
+check of ["(.*)world g1 end", r[3], 6]
+
+# ---- ident-shaped capture with anchors ----
+prog is re_compile of "^([a-zA-Z_][a-zA-Z0-9_]*)$"
+r is re_search of [prog, "foo_42"]
+check of ["^ident$ overall end", r[1], 6]
+check of ["^ident$ g1 covers all", r[2], 0]
+check of ["^ident$ g1 end", r[3], 6]
+check of ["^ident$ rejects leading digit", re_match of [prog, "1foo"], 0]
+
+# ---- empty capture () matches zero-width ----
+prog is re_compile of "()a"
+r is re_search of [prog, "a"]
+check of ["()a g1 start", r[2], 0]
+check of ["()a g1 end", r[3], 0]
+
+# ---- find_all with captures ----
+prog is re_compile of "([a-z])([0-9])"
+all is re_find_all of [prog, "a1 b2 c3"]
+check of ["find_all (l)(d) count", len of all, 3]
+m is all[0]
+check of ["find_all m0 g1", m[2], 0]
+check of ["find_all m0 g2 end", m[5], 2]
+m is all[2]
+check of ["find_all m2 g1 start", m[2], 6]
+check of ["find_all m2 g2 end", m[5], 8]
+
+# ---- parse errors ----
+prog is re_compile of "("
+check of ["bare ( returns null", prog, null]
+
+prog is re_compile of "(a"
+check of ["unclosed (a returns null", prog, null]
+
+prog is re_compile of ")"
+check of ["stray ) returns null", prog, null]
+
+print of "==="
+print of "all S5 checks emitted"

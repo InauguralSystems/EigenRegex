@@ -1,0 +1,61 @@
+# S1: literals + concatenation
+
+load_file of "lib/regex.eigs"
+
+failures is 0
+
+define check(label, got, want) as:
+    if got == want:
+        print of (label + " OK")
+    else:
+        print of (label + " FAIL")
+        print of "  got:"
+        print of got
+        print of "  want:"
+        print of want
+        failures is failures + 1
+    return 0
+
+# ---- empty pattern ----
+prog is re_compile of ""
+check of ["empty pattern matches empty", re_match of [prog, ""], 1]
+# NOTE: must bind subscripted call result to a local before passing it as an
+# arg — passing `(re_search of ...)[0]` inline reads uninitialized memory
+# in EigenScript (see /home/jon/EigenRegex/GAPS.md).
+r is re_search of [prog, "abc"]
+check of ["empty pattern matches anywhere via search", r[0], 0]
+
+# ---- single literal ----
+prog is re_compile of "a"
+check of ["a matches a", re_match of [prog, "a"], 1]
+check of ["a does not match b", re_match of [prog, "b"], 0]
+check of ["a does not match empty", re_match of [prog, ""], 0]
+check of ["a does not full-match ab (anchored)", re_match of [prog, "ab"], 0]
+
+# ---- multi-char literal sequence ----
+prog is re_compile of "abc"
+check of ["abc matches abc", re_match of [prog, "abc"], 1]
+check of ["abc does not match abd", re_match of [prog, "abd"], 0]
+check of ["abc does not match ab", re_match of [prog, "ab"], 0]
+check of ["abc does not match abcd (anchored)", re_match of [prog, "abcd"], 0]
+
+# ---- search (unanchored) ----
+prog is re_compile of "abc"
+r is re_search of [prog, "xxabcyy"]
+check of ["search finds abc at pos 2", r[0], 2]
+check of ["search end at pos 5", r[1], 5]
+
+r is re_search of [prog, "no match here"]
+check of ["search returns null on no match", r, null]
+
+# ---- find_all ----
+prog is re_compile of "ab"
+all is re_find_all of [prog, "abxabyab"]
+check of ["find_all count", len of all, 3]
+check of ["find_all first start", all[0][0], 0]
+check of ["find_all second start", all[1][0], 3]
+check of ["find_all third start", all[2][0], 6]
+
+print of "==="
+print of "failures:"
+print of failures

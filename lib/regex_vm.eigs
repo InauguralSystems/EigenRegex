@@ -1,0 +1,195 @@
+# ============================================================
+# EigenRegex — Pike-VM executor (with captures, S5)
+# ============================================================
+#
+# Standard Pike-VM with capture state:
+#   - Two thread lists: current (clist) and next (nlist). Each thread is
+#     a [pc, saves] pair where `saves` is a fresh list of length n_slots
+#     (-1 for "not captured"). Slot 2i / 2i+1 hold group i's start / end.
+#   - _addthread expands every non-consuming op inline:
+#       jmp / split  — recurse to target(s)
+#       save         — clone saves, write slot=sp, recurse to pc+1
+#       assert_start — pass through only at sp == 0
+#       assert_end   — pass through only at sp == n
+#     so the active list only contains threads parked at consuming ops
+#     (char / any / class) or at match.
+#   - Dedup by pc within a step keeps thread count bounded by |program|.
+#     The first thread to reach a pc carries the highest-priority saves
+#     (insertion order = priority); later arrivals would only lower it,
+#     so dropping them is correct.
+#   - Asserts depend on sp, but sp is constant within a single step, so
+#     pc-dedup remains valid (we use fresh nseen for each step).
+#
+# regex_vm_run signature:
+#   args = [prog, text, start, anchored]
+#     prog       — {"code": [...], "n_slots": N}
+#     text       — input string
+#     start      — starting position
+#     anchored   — 1 → full-string match required from `start`
+#                  0 → leftmost match anywhere from `start`
+#   Returns a flat list [match_start, match_end, g1s, g1e, g2s, g2e, ...]
+#   or null. Group spans appear in opening-paren order; a non-participating
+#   group is reported as [-1, -1].
+
+# ---- _clone_saves: shallow copy of the saves list ----
+# Lists are reference-typed; without a copy, two threads at different pcs
+# would share captures and the second `save` would clobber the first.
+define _clone_saves(saves) as:
+    out is []
+    i is 0
+    n is len of saves
+    loop while i < n:
+        append of [out, saves[i]]
+        i is i + 1
+    return out
+
+# ---- _addthread: add (pc, saves) to thread list, following epsilon edges ----
+define _addthread(tlist, seen, pc, saves, sp, n, prog) as:
+    if seen[pc] == 1:
+        return 0
+    seen[pc] is 1
+    inst is prog[pc]
+    op is inst[0]
+    if op == "jmp":
+        _addthread of [tlist, seen, inst[1], saves, sp, n, prog]
+        return 0
+    if op == "split":
+        _addthread of [tlist, seen, inst[1], saves, sp, n, prog]
+        _addthread of [tlist, seen, inst[2], saves, sp, n, prog]
+        return 0
+    if op == "save":
+        new_saves is _clone_saves of saves
+        new_saves[inst[1]] is sp
+        _addthread of [tlist, seen, pc + 1, new_saves, sp, n, prog]
+        return 0
+    if op == "assert_start":
+        if sp == 0:
+            _addthread of [tlist, seen, pc + 1, saves, sp, n, prog]
+        return 0
+    if op == "assert_end":
+        if sp == n:
+            _addthread of [tlist, seen, pc + 1, saves, sp, n, prog]
+        return 0
+    append of [tlist, [pc, saves]]
+    return 0
+
+# ---- _try_match_at: run the VM starting at sp=start ----
+# Returns [end_sp, saves] of the highest-priority match, or null.
+#
+# Pike-VM priority rule (same as S1-S4): when MATCH is hit at clist[i],
+# kill clist[i+1..] (lower priority) but continue stepping — earlier
+# threads in this step may have queued higher-priority nlist work whose
+# later MATCH overrides the current one.
+define _try_match_at(prog, text, start, n_slots) as:
+    n is len of text
+    plen is len of prog
+    clist is []
+    nlist is []
+    cseen is zeros of plen
+    nseen is zeros of plen
+    init_saves is []
+    s is 0
+    loop while s < n_slots:
+        append of [init_saves, -1]
+        s is s + 1
+    _addthread of [clist, cseen, 0, init_saves, start, n, prog]
+    sp is start
+    matched is 0
+    matched_sp is -1
+    matched_saves is null
+    loop while sp <= n:
+        i is 0
+        loop while i < (len of clist):
+            t is clist[i]
+            pc is t[0]
+            saves is t[1]
+            inst is prog[pc]
+            op is inst[0]
+            if op == "match":
+                matched is 1
+                matched_sp is sp
+                matched_saves is saves
+                # Kill remaining (lower-priority) threads in clist.
+                break
+            if op == "char":
+                if sp < n:
+                    c is char_at of [text, sp]
+                    if c == inst[1]:
+                        _addthread of [nlist, nseen, pc + 1, saves, sp + 1, n, prog]
+            if op == "any":
+                if sp < n:
+                    c is char_at of [text, sp]
+                    if c != "\n":
+                        _addthread of [nlist, nseen, pc + 1, saves, sp + 1, n, prog]
+            if op == "class":
+                if sp < n:
+                    c is char_at of [text, sp]
+                    code is ord of c
+                    ranges is inst[2]
+                    in_range is 0
+                    j is 0
+                    loop while j < (len of ranges):
+                        r is ranges[j]
+                        if code >= r[0]:
+                            if code <= r[1]:
+                                in_range is 1
+                                break
+                        j is j + 1
+                    take is in_range
+                    if inst[1] == 1:
+                        if in_range == 1:
+                            take is 0
+                        else:
+                            take is 1
+                    if take == 1:
+                        _addthread of [nlist, nseen, pc + 1, saves, sp + 1, n, prog]
+            i is i + 1
+        clist is nlist
+        cseen is nseen
+        nlist is []
+        nseen is zeros of plen
+        sp is sp + 1
+        if (len of clist) == 0:
+            if matched == 1:
+                return [matched_sp, matched_saves]
+            return null
+    if matched == 1:
+        return [matched_sp, matched_saves]
+    return null
+
+# ---- _build_result: flatten [start, end] + saves into a single result list ----
+# Caller already knows `start` (the position passed to _try_match_at) and
+# `end` (returned end_sp). Group spans interleave as g1s, g1e, g2s, g2e, ...
+define _build_result(start, end, saves) as:
+    out is [start, end]
+    i is 0
+    n is len of saves
+    loop while i < n:
+        append of [out, saves[i]]
+        i is i + 1
+    return out
+
+# ---- regex_vm_run: entry point ----
+define regex_vm_run(args) as:
+    prog is args[0]
+    text is args[1]
+    start is args[2]
+    anchored is args[3]
+    code is prog["code"]
+    n_slots is prog["n_slots"]
+    n is len of text
+    if anchored == 1:
+        result is _try_match_at of [code, text, start, n_slots]
+        if result == null:
+            return null
+        if result[0] != n:
+            return null
+        return _build_result of [start, result[0], result[1]]
+    # Search: try each start position from `start` to n inclusive.
+    sp is start
+    loop while sp <= n:
+        result is _try_match_at of [code, text, sp, n_slots]
+        if result != null:
+            return _build_result of [sp, result[0], result[1]]
+        sp is sp + 1
+    return null

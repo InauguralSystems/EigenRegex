@@ -1,0 +1,207 @@
+# ============================================================
+# EigenRegex — AST → instruction list compiler
+# ============================================================
+#
+# Instruction encoding (list per instruction, opcode in slot 0):
+#   ["char", c]            — match literal char c, advance sp
+#   ["any"]                — match any char (not newline), advance sp (S4)
+#   ["class", neg, ranges] — match char in/out of ranges, advance sp (S4)
+#   ["match"]              — accept
+#   ["jmp", target]        — unconditional jump
+#   ["split", a, b]        — fork: try pc=a, then pc=b
+#   ["save", slot]         — store sp into capture slot (S5)
+#   ["assert_start"]       — match only at sp==0 (S5)
+#   ["assert_end"]         — match only at sp==len(text) (S5)
+#
+# Compiler emits instructions into a flat list. For split/jmp, the target
+# index isn't known when the instruction is emitted, so we emit a placeholder
+# (-1) and backpatch via list element assignment once the body PCs are known.
+
+# ---- _emit: append one instruction and return its index ----
+define _emit(prog, inst) as:
+    idx is len of prog
+    append of [prog, inst]
+    return idx
+
+# ---- _compile_node: recursively emit for an AST node ----
+define _compile_node(node, prog) as:
+    tag is node[0]
+    if tag == "lit":
+        _emit of [prog, ["char", node[1]]]
+        return 0
+    if tag == "dot":
+        _emit of [prog, ["any"]]
+        return 0
+    if tag == "class":
+        _emit of [prog, ["class", node[1], node[2]]]
+        return 0
+    if tag == "empty":
+        return 0
+    if tag == "concat":
+        children is node[1]
+        for i in range of (len of children):
+            _compile_node of [children[i], prog]
+        return 0
+    if tag == "alt":
+        _compile_alt of [node[1], prog]
+        return 0
+    if tag == "star":
+        _compile_star of [node[1], prog, 1]
+        return 0
+    if tag == "star_lazy":
+        _compile_star of [node[1], prog, 0]
+        return 0
+    if tag == "plus":
+        _compile_plus of [node[1], prog, 1]
+        return 0
+    if tag == "plus_lazy":
+        _compile_plus of [node[1], prog, 0]
+        return 0
+    if tag == "quest":
+        _compile_quest of [node[1], prog, 1]
+        return 0
+    if tag == "quest_lazy":
+        _compile_quest of [node[1], prog, 0]
+        return 0
+    if tag == "anchor":
+        if node[1] == "start":
+            _emit of [prog, ["assert_start"]]
+        else:
+            _emit of [prog, ["assert_end"]]
+        return 0
+    if tag == "group":
+        idx is node[1]
+        _emit of [prog, ["save", 2 * idx]]
+        _compile_node of [node[2], prog]
+        _emit of [prog, ["save", 2 * idx + 1]]
+        return 0
+    # Unknown tag — emit nothing; later stages will extend.
+    return 0
+
+# ---- _compile_star: zero or more, greedy or lazy ----
+# Greedy:
+#   L1: split L2, L3      (try body first)
+#   L2: <body>
+#       jmp L1
+#   L3:
+# Lazy:
+#   L1: split L3, L2      (try exit first)
+#   L2: <body>
+#       jmp L1
+#   L3:
+define _compile_star(child, prog, greedy) as:
+    l1 is len of prog
+    split_idx is _emit of [prog, ["split", -1, -1]]
+    l2 is len of prog
+    _compile_node of [child, prog]
+    _emit of [prog, ["jmp", l1]]
+    l3 is len of prog
+    if greedy == 1:
+        prog[split_idx][1] is l2
+        prog[split_idx][2] is l3
+    else:
+        prog[split_idx][1] is l3
+        prog[split_idx][2] is l2
+    return 0
+
+# ---- _compile_plus: one or more, greedy or lazy ----
+# Greedy:
+#   L1: <body>
+#       split L1, L2      (try repeat first)
+#   L2:
+# Lazy:
+#   L1: <body>
+#       split L2, L1      (try exit first)
+#   L2:
+define _compile_plus(child, prog, greedy) as:
+    l1 is len of prog
+    _compile_node of [child, prog]
+    split_idx is _emit of [prog, ["split", -1, -1]]
+    l2 is len of prog
+    if greedy == 1:
+        prog[split_idx][1] is l1
+        prog[split_idx][2] is l2
+    else:
+        prog[split_idx][1] is l2
+        prog[split_idx][2] is l1
+    return 0
+
+# ---- _compile_quest: zero or one, greedy or lazy ----
+# Greedy:
+#   split L1, L2          (try body first)
+#   L1: <body>
+#   L2:
+# Lazy:
+#   split L2, L1          (try skip first)
+#   L1: <body>
+#   L2:
+define _compile_quest(child, prog, greedy) as:
+    split_idx is _emit of [prog, ["split", -1, -1]]
+    l1 is len of prog
+    _compile_node of [child, prog]
+    l2 is len of prog
+    if greedy == 1:
+        prog[split_idx][1] is l1
+        prog[split_idx][2] is l2
+    else:
+        prog[split_idx][1] is l2
+        prog[split_idx][2] is l1
+    return 0
+
+# ---- _compile_alt: n-way alternation as a chain of splits ----
+# Pattern for 3-way alt [A, B, C]:
+#   split L_A, L_rest
+#   L_A:    <A>
+#           jmp L_END
+#   L_rest: split L_B, L_C
+#   L_B:    <B>
+#           jmp L_END
+#   L_C:    <C>
+#   L_END:
+# 2-way is the same with the recursion collapsed.
+define _compile_alt(branches, prog) as:
+    n is len of branches
+    if n == 1:
+        _compile_node of [branches[0], prog]
+        return 0
+    # Emit split placeholder; first target is next pc, second is fixed up
+    # after we know where the rest goes.
+    split_idx is _emit of [prog, ["split", -1, -1]]
+    first_pc is len of prog
+    prog[split_idx][1] is first_pc
+    _compile_node of [branches[0], prog]
+    jmp_idx is _emit of [prog, ["jmp", -1]]
+    rest_pc is len of prog
+    prog[split_idx][2] is rest_pc
+    # Compile remaining branches as a sub-alt.
+    rest is []
+    i is 1
+    loop while i < n:
+        append of [rest, branches[i]]
+        i is i + 1
+    _compile_alt of [rest, prog]
+    end_pc is len of prog
+    prog[jmp_idx][1] is end_pc
+    return 0
+
+# ---- regex_compile_ast: AST → {"code": [...], "n_slots": N} ----
+# n_slots is computed by scanning emitted save ops; the VM uses it to
+# pre-size the saves list each thread carries. Returned as a dict so the
+# VM can grab both pieces atomically; null patterns still propagate as null
+# from the parser, before we ever get here.
+define regex_compile_ast(ast) as:
+    prog is []
+    _compile_node of [ast, prog]
+    _emit of [prog, ["match"]]
+    n_slots is 0
+    i is 0
+    loop while i < (len of prog):
+        inst is prog[i]
+        if inst[0] == "save":
+            if inst[1] >= n_slots:
+                n_slots is inst[1] + 1
+        i is i + 1
+    out is {}
+    out["code"] is prog
+    out["n_slots"] is n_slots
+    return out
