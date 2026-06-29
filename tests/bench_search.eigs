@@ -1,0 +1,29 @@
+# Scaling benchmark for unanchored re_search (NOT a pass/fail test — timings are
+# machine-dependent). The pathological case: `a*b` over a string of all 'a' with
+# no 'b', so `a*` consumes to the end and fails at every start position. The old
+# per-start-position loop was O(n^2) here (each of n starts ran the O(n) VM);
+# the single-pass implicit-.*?-prefix search is O(n*|prog|). Run:
+#   eigenscript tests/bench_search.eigs
+# and check the ms roughly DOUBLE (not quadruple) as n doubles.
+load_file of "lib/regex.eigs"
+
+define make_as(n) as:
+    local s is ""
+    loop while (len of s) < n:
+        s is s + s + "a"
+    return substr of [s, 0, n]
+
+prog is re_compile of "a*b"
+
+define bench(n) as:
+    local txt is make_as of n
+    local t0 is monotonic_ms of null
+    local r is re_search of [prog, txt]
+    local t1 is monotonic_ms of null
+    print of (f"n={n}  ms={t1 - t0}  match={r}")
+    return 0
+
+bench of 200
+bench of 400
+bench of 800
+bench of 1600

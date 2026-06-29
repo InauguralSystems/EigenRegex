@@ -44,33 +44,36 @@ define _clone_saves(saves) as:
     return out
 
 # ---- _addthread: add (pc, saves) to thread list, following epsilon edges ----
-define _addthread(tlist, seen, pc, saves, sp, n, prog) as:
+# mstart is the input position where this thread's match BEGAN. The anchored
+# runner passes a constant (the fixed start); the single-pass search seeds it
+# with the current sp so each thread remembers its own leftmost origin.
+define _addthread(tlist, seen, pc, saves, sp, n, prog, mstart) as:
     if seen[pc] == 1:
         return 0
     seen[pc] is 1
     inst is prog[pc]
     op is inst[0]
     if op == "jmp":
-        _addthread of [tlist, seen, inst[1], saves, sp, n, prog]
+        _addthread of [tlist, seen, inst[1], saves, sp, n, prog, mstart]
         return 0
     if op == "split":
-        _addthread of [tlist, seen, inst[1], saves, sp, n, prog]
-        _addthread of [tlist, seen, inst[2], saves, sp, n, prog]
+        _addthread of [tlist, seen, inst[1], saves, sp, n, prog, mstart]
+        _addthread of [tlist, seen, inst[2], saves, sp, n, prog, mstart]
         return 0
     if op == "save":
         new_saves is _clone_saves of saves
         new_saves[inst[1]] is sp
-        _addthread of [tlist, seen, pc + 1, new_saves, sp, n, prog]
+        _addthread of [tlist, seen, pc + 1, new_saves, sp, n, prog, mstart]
         return 0
     if op == "assert_start":
         if sp == 0:
-            _addthread of [tlist, seen, pc + 1, saves, sp, n, prog]
+            _addthread of [tlist, seen, pc + 1, saves, sp, n, prog, mstart]
         return 0
     if op == "assert_end":
         if sp == n:
-            _addthread of [tlist, seen, pc + 1, saves, sp, n, prog]
+            _addthread of [tlist, seen, pc + 1, saves, sp, n, prog, mstart]
         return 0
-    append of [tlist, [pc, saves]]
+    append of [tlist, [pc, saves, mstart]]
     return 0
 
 # ---- _try_match_at: run the VM starting at sp=start ----
@@ -92,7 +95,7 @@ define _try_match_at(prog, text, start, n_slots) as:
     loop while s < n_slots:
         append of [init_saves, -1]
         s is s + 1
-    _addthread of [clist, cseen, 0, init_saves, start, n, prog]
+    _addthread of [clist, cseen, 0, init_saves, start, n, prog, start]
     sp is start
     matched is 0
     matched_sp is -1
@@ -115,12 +118,12 @@ define _try_match_at(prog, text, start, n_slots) as:
                 if sp < n:
                     c is char_at of [text, sp]
                     if c == inst[1]:
-                        _addthread of [nlist, nseen, pc + 1, saves, sp + 1, n, prog]
+                        _addthread of [nlist, nseen, pc + 1, saves, sp + 1, n, prog, start]
             if op == "any":
                 if sp < n:
                     c is char_at of [text, sp]
                     if c != "\n":
-                        _addthread of [nlist, nseen, pc + 1, saves, sp + 1, n, prog]
+                        _addthread of [nlist, nseen, pc + 1, saves, sp + 1, n, prog, start]
             if op == "class":
                 if sp < n:
                     c is char_at of [text, sp]
@@ -142,7 +145,7 @@ define _try_match_at(prog, text, start, n_slots) as:
                         else:
                             take is 1
                     if take == 1:
-                        _addthread of [nlist, nseen, pc + 1, saves, sp + 1, n, prog]
+                        _addthread of [nlist, nseen, pc + 1, saves, sp + 1, n, prog, start]
             i is i + 1
         clist is nlist
         cseen is nseen
@@ -169,6 +172,98 @@ define _build_result(start, end, saves) as:
         i is i + 1
     return out
 
+# ---- _search: single linear pass, leftmost match (implicit .*? prefix) ----
+# Re-running _try_match_at from every start position is O(n^2) (each of n starts
+# runs the O(n) VM). Instead make ONE pass: at each step, while no match is
+# locked in yet, seed a fresh start thread at pc=0 (mstart=sp) at LOWEST
+# priority. Threads seeded earlier (smaller mstart) stay higher priority via
+# pc-dedup, so the first MATCH in priority order is the leftmost-longest one —
+# byte-identical to the loop version, but O(n*|prog|), restoring the Pike-VM
+# linear-time guarantee.
+define _search(prog, text, start, n_slots) as:
+    n is len of text
+    plen is len of prog
+    clist is []
+    nlist is []
+    cseen is zeros of plen
+    nseen is zeros of plen
+    sp is start
+    matched is 0
+    m_start is -1
+    m_end is -1
+    m_saves is null
+    loop while sp <= n:
+        # Seed a new start thread (lowest priority) until a match is locked in;
+        # a start to the right of an existing match can never be leftmost.
+        if matched == 0:
+            init_saves is []
+            s is 0
+            loop while s < n_slots:
+                append of [init_saves, -1]
+                s is s + 1
+            _addthread of [clist, cseen, 0, init_saves, sp, n, prog, sp]
+        i is 0
+        loop while i < (len of clist):
+            t is clist[i]
+            pc is t[0]
+            saves is t[1]
+            mstart is t[2]
+            inst is prog[pc]
+            op is inst[0]
+            if op == "match":
+                matched is 1
+                m_start is mstart
+                m_end is sp
+                m_saves is saves
+                # Kill remaining (lower-priority) threads in clist this step.
+                break
+            if op == "char":
+                if sp < n:
+                    c is char_at of [text, sp]
+                    if c == inst[1]:
+                        _addthread of [nlist, nseen, pc + 1, saves, sp + 1, n, prog, mstart]
+            if op == "any":
+                if sp < n:
+                    c is char_at of [text, sp]
+                    if c != "\n":
+                        _addthread of [nlist, nseen, pc + 1, saves, sp + 1, n, prog, mstart]
+            if op == "class":
+                if sp < n:
+                    c is char_at of [text, sp]
+                    code is ord of c
+                    ranges is inst[2]
+                    in_range is 0
+                    j is 0
+                    loop while j < (len of ranges):
+                        r is ranges[j]
+                        if code >= r[0]:
+                            if code <= r[1]:
+                                in_range is 1
+                                break
+                        j is j + 1
+                    take is in_range
+                    if inst[1] == 1:
+                        if in_range == 1:
+                            take is 0
+                        else:
+                            take is 1
+                    if take == 1:
+                        _addthread of [nlist, nseen, pc + 1, saves, sp + 1, n, prog, mstart]
+            i is i + 1
+        clist is nlist
+        cseen is nseen
+        nlist is []
+        nseen is zeros of plen
+        sp is sp + 1
+        # After a match is locked in, higher-priority threads may still extend it
+        # (greedy); once they all drain, the recorded match is final.
+        if matched == 1:
+            if (len of clist) == 0:
+                return [m_start, m_end, m_saves]
+    if matched == 1:
+        return [m_start, m_end, m_saves]
+    return null
+
 # ---- regex_vm_run: entry point ----
 define regex_vm_run(args) as:
     prog is args[0]
@@ -185,11 +280,8 @@ define regex_vm_run(args) as:
         if result[0] != n:
             return null
         return _build_result of [start, result[0], result[1]]
-    # Search: try each start position from `start` to n inclusive.
-    sp is start
-    loop while sp <= n:
-        result is _try_match_at of [code, text, sp, n_slots]
-        if result != null:
-            return _build_result of [sp, result[0], result[1]]
-        sp is sp + 1
-    return null
+    # Search: single linear pass with an implicit .*? prefix (leftmost match).
+    result is _search of [code, text, start, n_slots]
+    if result == null:
+        return null
+    return _build_result of [result[0], result[1], result[2]]
