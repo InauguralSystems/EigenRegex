@@ -127,6 +127,16 @@ Literals, concat, `|`, `( )`, `* + ?` (greedy + lazy), `.`,
 fold into corpus for retraining** — feeding the engine's own source
 + tests into the iLambdaAi self-training pipeline as a real workload.
 
+**Search is now genuinely O(n·m).** `re_search` used to loop over every
+start position and re-run the VM from each — O(n²), which silently
+violated the library's whole linear-time promise (`a*b` over `"aaaa…"`:
+~4× per doubling, n=1600 took ~79 s). Replaced with a single linear
+pass that seeds a lowest-priority start thread at `pc=0` each step (the
+implicit `.*?` prefix), preserving leftmost-match priority. Now ~2× per
+doubling; n=1600 ≈ 106 ms (~745× faster), all 220 checks unchanged.
+`tests/bench_search.eigs` documents the scaling (timings are
+machine-dependent, so it's a manual bench, not a pass/fail gate).
+
 ## Gotchas
 
 - Patterns are compiled once and reused (`re_compile`). Don't compile
