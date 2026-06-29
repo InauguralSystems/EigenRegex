@@ -42,29 +42,30 @@ playground build).
 
 EigenScript is **not** vendored. Pin v0.13.0 minimum (strings
 needed `<`/`<=` comparison and `ord of s`, both of which shipped in
-v0.13.0 — see GAPS.md for the fix history). **v0.14.2** is the
-current tested release.
+v0.13.0 — see GAPS.md for the fix history). CI pins the runtime via
+`.devcontainer/Dockerfile`'s `EIGS_REF` (currently **v0.21.0**) and
+builds it from source — bump that to move the tested runtime.
 
 ## Run / test
 
+CI builds the devcontainer (EigenScript pinned by `EIGS_REF`) and runs
+the suite inside it via `devcontainers/ci`, so Codespace and CI can't
+drift. The runner exits non-zero on any `FAIL` or crash — that's the
+gate (the per-stage `.eigs` files print `OK`/`FAIL` but exit 0 on their
+own).
+
 ```bash
-EIGS=${EIGENSCRIPT_BIN:-/home/jon/EigenScript/src/eigenscript}
+# All stages + smoke, with a pass/fail exit code (what CI runs):
+EIGENSCRIPT=eigenscript bash tests/run.sh
 
-# Smoke (S0): load + public-API end-to-end
-$EIGS tests/test_smoke.eigs
-
-# Per-stage tests (each has its own assertion count)
-$EIGS tests/test_s1_literals.eigs
-$EIGS tests/test_s2_alt.eigs
-$EIGS tests/test_s3_repeat.eigs
-$EIGS tests/test_s4_classes.eigs
-$EIGS tests/test_s5_anchors_groups.eigs
-
-# Quick all-stages loop:
-for t in tests/test_s*.eigs tests/test_smoke.eigs; do $EIGS "$t"; done
+# Or against a specific binary, one file at a time:
+EIGS=${EIGENSCRIPT_BIN:-eigenscript}
+$EIGS tests/test_s1_literals.eigs   # ... s2 alt, s3 repeat, s4 classes,
+$EIGS tests/test_s5_anchors_groups.eigs   # s5 anchors/groups, test_smoke
 ```
 
-220 test checks across S1–S5, all green.
+220 test checks across S1–S5, all green. (`tests/bench_search.eigs` is
+a manual timing bench, not part of the gate.)
 
 ## Layout
 
@@ -76,6 +77,9 @@ for t in tests/test_s*.eigs tests/test_smoke.eigs; do $EIGS "$t"; done
 | `lib/regex_vm.eigs` | Pike-VM executor (parallel-thread simulation) |
 | `tests/test_s{1..5}_*.eigs` | Per-stage tests (literals → alt → repeat → classes → anchors/groups) |
 | `tests/test_smoke.eigs` | S0 end-to-end load + API smoke |
+| `tests/run.sh` | Suite runner — runs every test, exits non-zero on any FAIL/crash (the CI gate) |
+| `tests/bench_search.eigs` | Manual scaling bench for `re_search` (not a pass/fail gate) |
+| `.devcontainer/`, `.github/workflows/test.yml` | Pinned (`EIGS_REF`) devcontainer + CI running the suite |
 | `GAPS.md` | Upstream-gap ledger (with fixed/open status per entry) |
 
 ## Architecture notes

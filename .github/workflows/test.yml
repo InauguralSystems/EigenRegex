@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: suite (in devcontainer)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Build the devcontainer (EigenScript pinned by .devcontainer/Dockerfile's
+      # EIGS_REF) and run the 220-check suite inside it — the same image a
+      # Codespace opens. EIGENSCRIPT=eigenscript points the runner at the on-PATH
+      # runtime; tests/run.sh exits non-zero on any FAIL or crash.
+      - name: Build devcontainer and run suite
+        uses: devcontainers/ci@v0.3
+        with:
+          runCmd: EIGENSCRIPT=eigenscript bash tests/run.sh
