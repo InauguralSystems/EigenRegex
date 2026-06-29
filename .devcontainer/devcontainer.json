@@ -1,0 +1,17 @@
+{
+  "name": "EigenRegex",
+  "build": { "dockerfile": "Dockerfile" },
+  "workspaceFolder": "/workspaces/EigenRegex",
+  "remoteUser": "root",
+
+  // The test runner addresses the runtime via $EIGENSCRIPT; export it to the
+  // installed binary so `bash tests/run.sh` works out of the box in a Codespace.
+  "postCreateCommand": "eigenscript --version",
+  "remoteEnv": { "EIGENSCRIPT": "eigenscript" },
+
+  "customizations": {
+    "vscode": {
+      "settings": { "files.associations": { "*.eigs": "python" } }
+    }
+  }
+}
