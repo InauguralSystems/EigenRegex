@@ -1,0 +1,98 @@
+# S7: {n} {n,} {n,m} interval quantifiers (greedy + lazy) via desugaring
+
+load_file of "lib/regex.eigs"
+
+define check(label, got, want) as:
+    if got == want:
+        print of (label + " OK")
+    else:
+        print of (label + " FAIL")
+        print of "  got:"
+        print of got
+        print of "  want:"
+        print of want
+    return 0
+
+# ---- exact {n} ----
+prog is re_compile of "a{3}"
+check of ["a{3} exact", re_match of [prog, "aaa"], 1]
+check of ["a{3} too few", re_match of [prog, "aa"], 0]
+check of ["a{3} too many", re_match of [prog, "aaaa"], 0]
+
+prog is re_compile of "a{1}"
+check of ["a{1} single", re_match of [prog, "a"], 1]
+
+prog is re_compile of "a{0}"
+check of ["a{0} matches empty", re_match of [prog, ""], 1]
+check of ["a{0} rejects a", re_match of [prog, "a"], 0]
+
+# ---- open-ended {n,} ----
+prog is re_compile of "a{2,}"
+check of ["a{2,} minimum", re_match of [prog, "aa"], 1]
+check of ["a{2,} many", re_match of [prog, "aaaaaaa"], 1]
+check of ["a{2,} too few", re_match of [prog, "a"], 0]
+
+prog is re_compile of "a{0,}"
+check of ["a{0,} is star (empty)", re_match of [prog, ""], 1]
+check of ["a{0,} is star (many)", re_match of [prog, "aaaa"], 1]
+
+# ---- bounded {n,m} ----
+prog is re_compile of "a{2,4}"
+check of ["a{2,4} low", re_match of [prog, "aa"], 1]
+check of ["a{2,4} mid", re_match of [prog, "aaa"], 1]
+check of ["a{2,4} high", re_match of [prog, "aaaa"], 1]
+check of ["a{2,4} below", re_match of [prog, "a"], 0]
+check of ["a{2,4} above", re_match of [prog, "aaaaa"], 0]
+
+prog is re_compile of "a{0,2}"
+check of ["a{0,2} empty", re_match of [prog, ""], 1]
+check of ["a{0,2} two", re_match of [prog, "aa"], 1]
+check of ["a{0,2} three", re_match of [prog, "aaa"], 0]
+
+# ---- compound atoms ----
+prog is re_compile of "(ab){2}"
+check of ["(ab){2} matches abab", re_match of [prog, "abab"], 1]
+check of ["(ab){2} rejects ab", re_match of [prog, "ab"], 0]
+
+prog is re_compile of "[a-z]{2,3}"
+check of ["[a-z]{2,3} two", re_match of [prog, "xy"], 1]
+check of ["[a-z]{2,3} three", re_match of [prog, "xyz"], 1]
+check of ["[a-z]{2,3} four", re_match of [prog, "wxyz"], 0]
+
+prog is re_compile of "\\.{2}"
+check of ["escape + interval", re_match of [prog, ".."], 1]
+check of ["escape + interval rejects chars", re_match of [prog, "ab"], 0]
+
+prog is re_compile of "a{2}b{2}"
+check of ["adjacent intervals", re_match of [prog, "aabb"], 1]
+
+# ---- greedy vs lazy spans ----
+prog is re_compile of "a{1,3}"
+r is re_search of [prog, "aaa"]
+check of ["greedy {1,3} takes maximum", [r[0], r[1]], [0, 3]]
+
+prog is re_compile of "a{1,3}?"
+r is re_search of [prog, "aaa"]
+check of ["lazy {1,3}? takes minimum", [r[0], r[1]], [0, 1]]
+
+# ---- captures: shared group slots, last repetition wins (glibc parity) ----
+prog is re_compile of "(a|b){2}"
+r is re_search of [prog, "ab"]
+check of ["(a|b){2} full span", [r[0], r[1]], [0, 2]]
+check of ["(a|b){2} last repetition wins", [r[2], r[3]], [1, 2]]
+
+prog is re_compile of "(a){0,2}"
+r is re_search of [prog, ""]
+check of ["optional group unset reports -1", [r[2], r[3]], [-1, -1]]
+
+# ---- invalid specs are parse errors (glibc parity) ----
+check of ["unclosed brace errors", re_compile of "a{", null]
+check of ["non-numeric bound errors", re_compile of "a{x}", null]
+check of ["unterminated spec errors", re_compile of "a{2", null]
+check of ["reversed bounds error", re_compile of "a{5,2}", null]
+check of ["count over cap errors", re_compile of "a{300}", null]
+check of ["upper bound over cap errors", re_compile of "a{1,300}", null]
+
+# A brace with no preceding atom is a literal character.
+prog is re_compile of "{x}"
+check of ["literal brace at atom position", re_match of [prog, "{x}"], 1]

@@ -31,8 +31,13 @@ libc-POSIX-backed builtins. EigenRegex prefixes its public API with
 | backend        | libc POSIX ERE in C | Pike-VM in EigenScript |
 | speed          | native, fast        | interpreted, ~100–1000× slower |
 | worst case     | can backtrack catastrophically | guaranteed `O(n·m)` |
-| features       | `{n,m}`, POSIX classes | MVP: `* + ? . [] ^ $ ( )` |
+| features       | POSIX ERE + GNU `\w \s \b` | ERE parity minus `\b`; lazy quantifiers extra |
+| match rule     | leftmost-longest (POSIX) | leftmost-first (Pike-VM priority) |
 | return shape   | substring list      | positional spans `[s, e, ...]` |
+
+`lib/regex_compat.eigs` re-exposes the builtins' exact names/shapes on
+top of the Pike VM (for freestanding/WASM); divergences are documented
+in its header — chiefly leftmost-longest vs leftmost-first, and no `\b`.
 
 **Pick the builtin for hot paths; pick `re_*` when you need a linear
 worst-case guarantee or libc isn't available** (e.g. the WASM
@@ -43,7 +48,7 @@ playground build).
 EigenScript is **not** vendored. Pin v0.13.0 minimum (strings
 needed `<`/`<=` comparison and `ord of s`, both of which shipped in
 v0.13.0 — see GAPS.md for the fix history). CI pins the runtime via
-`.devcontainer/Dockerfile`'s `EIGS_REF` (currently **v0.21.0**) and
+`.devcontainer/Dockerfile`'s `EIGS_REF` (currently **v0.23.0**) and
 builds it from source — bump that to move the tested runtime.
 
 ## Run / test
@@ -64,7 +69,7 @@ $EIGS tests/test_s1_literals.eigs   # ... s2 alt, s3 repeat, s4 classes,
 $EIGS tests/test_s5_anchors_groups.eigs   # s5 anchors/groups, test_smoke
 ```
 
-220 test checks across S1–S5, all green. (`tests/bench_search.eigs` is
+347 test checks across S1–S8, all green. (`tests/bench_search.eigs` is
 a manual timing bench, not part of the gate.)
 
 ## Layout
@@ -75,7 +80,8 @@ a manual timing bench, not part of the gate.)
 | `lib/regex_parse.eigs` | Pattern string → AST |
 | `lib/regex_compile.eigs` | AST → instruction list |
 | `lib/regex_vm.eigs` | Pike-VM executor (parallel-thread simulation) |
-| `tests/test_s{1..5}_*.eigs` | Per-stage tests (literals → alt → repeat → classes → anchors/groups) |
+| `lib/regex_compat.eigs` | Builtin-shaped shim (`regex_match`/`regex_find`/`regex_replace` over the Pike VM) |
+| `tests/test_s{1..8}_*.eigs` | Per-stage tests (literals → alt → repeat → classes → anchors/groups → escapes/POSIX → intervals → compat/differential) |
 | `tests/test_smoke.eigs` | S0 end-to-end load + API smoke |
 | `tests/run.sh` | Suite runner — runs every test, exits non-zero on any FAIL/crash (the CI gate) |
 | `tests/bench_search.eigs` | Manual scaling bench for `re_search` (not a pass/fail gate) |
@@ -97,18 +103,22 @@ a manual timing bench, not part of the gate.)
   separated. Adding a feature usually touches all three of parse,
   compile, vm.
 
-## Supported features (MVP, stable)
+## Supported features (stable)
 
-Literals, concat, `|`, `( )`, `* + ?` (greedy + lazy), `.`,
-`[abc]`, `[^abc]`, `[a-z]`, `^`, `$`, numbered capture groups.
+Literals, escaped metachars (`\.` `\*` …), concat, `|`, `( )`,
+`* + ?` and `{n} {n,} {n,m}` (all greedy + lazy), `.`, `[abc]`,
+`[^abc]`, `[a-z]`, POSIX `[[:alpha:]]`-style classes, `\w \W \s \S`
+(`\d` is a literal `d` — glibc ERE parity, verified against the
+oracle), `^`, `$`, numbered capture groups, `re_replace`, and the
+builtin-shaped compat layer.
 
 ## Out of scope
 
 - Backreferences (force backtracking — incompatible with Pike-VM
   guarantee)
-- Lookahead / lookbehind
+- Lookahead / lookbehind; `\b` word boundaries (would need text access
+  in the VM's epsilon-closure — doable, deferred until something needs it)
 - Named groups
-- `{n,m}` quantifiers
 - Unicode classes (`\p{...}`)
 - Case-insensitive flags (yet)
 
@@ -127,9 +137,16 @@ Literals, concat, `|`, `( )`, `* + ?` (greedy + lazy), `.`,
 
 ## Current state
 
-**S5 complete.** All 220 checks across S1–S5 green. Next is **S6:
-fold into corpus for retraining** — feeding the engine's own source
-+ tests into the iLambdaAi self-training pipeline as a real workload.
+**S8 complete (ERE parity, 2026-07-01).** All 347 checks across S1–S8
+green. S6 added escapes + POSIX classes, S7 added `{n,m}` intervals
+(desugared in the parser — no new VM ops; shared-subtree repetition
+gives glibc's last-repetition-wins capture semantics), S8 added
+`re_replace` + `lib/regex_compat.eigs` and a differential suite that
+runs shim-vs-builtin over shared inputs with the libc builtins as the
+oracle. Built for EigenScript's freestanding profile (EigenOS): the
+compat layer is the planned regex story when libc's regcomp is gone.
+Still open: fold into corpus for retraining — feeding the engine's own
+source + tests into the iLambdaAi self-training pipeline.
 
 **Search is now genuinely O(n·m).** `re_search` used to loop over every
 start position and re-run the VM from each — O(n²), which silently

@@ -1,0 +1,76 @@
+# ============================================================
+# EigenRegex — builtin-shaped compat layer
+# ============================================================
+#
+# Drop-in implementations of EigenScript's libc-backed builtins
+# (`regex_match` / `regex_find` / `regex_replace`) on top of the Pike-VM
+# engine — same names, same argument shapes, same substring-list returns.
+# Loading this file SHADOWS the builtins in the current scope; that is the
+# point. Intended for environments without libc regex (the freestanding /
+# EigenOS profile, WASM) or when the linear-time guarantee matters more
+# than raw speed. To differential-test against the live builtins, capture
+# them first:  bi is regex_match  … then load this file.
+#
+# Faithfully replicated builtin quirks (verified against the oracle):
+#   - regex_match returns [full, g1, ...] but STOPS at the first
+#     non-participating group and caps at 16 entries.
+#   - a pattern that fails to compile returns [] (match/find) or the
+#     input unchanged (replace) — indistinguishable from no-match.
+#   - zero-width replace passes one char through per empty match
+#     ("x*" over "abc" → "-a-b-c-").
+#
+# Known divergences from the libc builtins (documented, deliberate):
+#   - POSIX ERE picks the leftmost-LONGEST alternative; the Pike VM picks
+#     the leftmost-FIRST (greedy priority). "a|ab" on "ab" differs.
+#   - \b / \B word boundaries are not supported (parse error).
+#   - The builtins re-run regexec on the remainder after each match
+#     without REG_NOTBOL, so "^" can re-anchor mid-string in
+#     regex_find/regex_replace; here "^" means position 0 only.
+#   - builtin regex_find drops a zero-width match at end-of-string.
+
+load_file of "lib/regex.eigs"
+
+# ---- regex_match: [string, pattern] → [full, g1, ...] or [] ----
+define regex_match(args) as:
+    local s is args[0]
+    local pattern is args[1]
+    local prog is re_compile of pattern
+    if prog == null:
+        return []
+    local caps is re_search of [prog, s]
+    if caps == null:
+        return []
+    local out is []
+    local i is 0
+    loop while i < (len of caps):
+        if (len of out) >= 16:
+            break
+        local ms is caps[i]
+        if ms < 0:
+            break
+        append of [out, s[ms:caps[i + 1]]]
+        i is i + 2
+    return out
+
+# ---- regex_find: [string, pattern] → list of matched substrings ----
+define regex_find(args) as:
+    local s is args[0]
+    local pattern is args[1]
+    local prog is re_compile of pattern
+    if prog == null:
+        return []
+    local out is []
+    local spans is re_find_all of [prog, s]
+    for m in spans:
+        append of [out, s[m[0]:m[1]]]
+    return out
+
+# ---- regex_replace: [string, pattern, replacement] → string ----
+define regex_replace(args) as:
+    local s is args[0]
+    local pattern is args[1]
+    local rep is args[2]
+    local prog is re_compile of pattern
+    if prog == null:
+        return s
+    return re_replace of [prog, s, rep]

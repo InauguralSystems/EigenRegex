@@ -1,0 +1,101 @@
+# S6: backslash escapes (\. \* \\ \w \W \s \S) and POSIX [:classes:]
+
+load_file of "lib/regex.eigs"
+
+define check(label, got, want) as:
+    if got == want:
+        print of (label + " OK")
+    else:
+        print of (label + " FAIL")
+        print of "  got:"
+        print of got
+        print of "  want:"
+        print of want
+    return 0
+
+# ---- escaped metacharacters are literals ----
+prog is re_compile of "a\\.c"
+check of ["\\. literal dot matches", re_match of [prog, "a.c"], 1]
+check of ["\\. literal dot rejects x", re_match of [prog, "axc"], 0]
+
+prog is re_compile of "a\\*b"
+check of ["\\* literal star", re_match of [prog, "a*b"], 1]
+check of ["\\* rejects repetition", re_match of [prog, "aab"], 0]
+
+prog is re_compile of "\\(x\\)"
+check of ["\\( \\) literal parens", re_match of [prog, "(x)"], 1]
+
+prog is re_compile of "a\\\\b"
+check of ["\\\\ literal backslash", re_match of [prog, "a\\b"], 1]
+
+prog is re_compile of "\\$5"
+check of ["\\$ literal dollar", re_match of [prog, "$5"], 1]
+
+# ---- escape classes ----
+prog is re_compile of "\\w+"
+check of ["\\w+ letters digits underscore", re_match of [prog, "abc_123"], 1]
+check of ["\\w+ rejects space", re_match of [prog, "a b"], 0]
+
+prog is re_compile of "\\W"
+check of ["\\W matches space", re_match of [prog, " "], 1]
+check of ["\\W rejects word char", re_match of [prog, "a"], 0]
+
+prog is re_compile of "a\\sb"
+check of ["\\s matches space", re_match of [prog, "a b"], 1]
+check of ["\\s matches tab", re_match of [prog, "a\tb"], 1]
+check of ["\\s rejects x", re_match of [prog, "axb"], 0]
+
+prog is re_compile of "\\S+"
+check of ["\\S+ nonspace run", re_match of [prog, "abc"], 1]
+check of ["\\S+ rejects embedded space", re_match of [prog, "a c"], 0]
+
+# glibc-parity trap: \d is a literal 'd' in ERE, not a digit class.
+prog is re_compile of "\\d+"
+check of ["\\d is literal d (glibc parity)", re_match of [prog, "ddd"], 1]
+check of ["\\d does not match digits", re_match of [prog, "123"], 0]
+
+check of ["trailing backslash is a parse error", re_compile of "ab\\", null]
+
+# ---- POSIX classes ----
+prog is re_compile of "[[:alpha:]]+"
+check of ["[:alpha:] letters", re_match of [prog, "AbC"], 1]
+check of ["[:alpha:] rejects digit", re_match of [prog, "a1"], 0]
+
+prog is re_compile of "[[:digit:]]+"
+check of ["[:digit:] digits", re_match of [prog, "0129"], 1]
+check of ["[:digit:] rejects letter", re_match of [prog, "12a"], 0]
+
+prog is re_compile of "[[:alnum:]_]+"
+check of ["[:alnum:] plus underscore union", re_match of [prog, "id_9"], 1]
+
+prog is re_compile of "[[:alpha:]0-9]+"
+check of ["posix class + range union", re_match of [prog, "a5Z"], 1]
+
+prog is re_compile of "[^[:digit:]]"
+check of ["negated posix matches letter", re_match of [prog, "a"], 1]
+check of ["negated posix rejects digit", re_match of [prog, "5"], 0]
+
+prog is re_compile of "[[:xdigit:]]+"
+check of ["[:xdigit:] hex digits", re_match of [prog, "9aF"], 1]
+check of ["[:xdigit:] rejects g", re_match of [prog, "g"], 0]
+
+prog is re_compile of "[[:space:]]"
+check of ["[:space:] tab", re_match of [prog, "\t"], 1]
+check of ["[:space:] rejects letter", re_match of [prog, "x"], 0]
+
+prog is re_compile of "[[:upper:]][[:lower:]]+"
+check of ["[:upper:][:lower:]+ capitalized word", re_match of [prog, "Word"], 1]
+check of ["[:upper:][:lower:]+ rejects lowercase", re_match of [prog, "word"], 0]
+
+prog is re_compile of "[[:punct:]]"
+check of ["[:punct:] comma", re_match of [prog, ","], 1]
+check of ["[:punct:] rejects letter", re_match of [prog, "a"], 0]
+
+check of ["unknown class name errors", re_compile of "[[:bogus:]]", null]
+check of ["unterminated posix class errors", re_compile of "[[:alpha:]", null]
+
+# glibc-parity: backslash inside a bracket class is a literal backslash.
+prog is re_compile of "[\\w]"
+check of ["class backslash literal (glibc parity)", re_match of [prog, "\\"], 1]
+check of ["[\\w] matches w", re_match of [prog, "w"], 1]
+check of ["[\\w] does not match a", re_match of [prog, "a"], 0]
