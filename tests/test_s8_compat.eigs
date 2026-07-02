@@ -1,0 +1,83 @@
+# S8: builtin-shaped compat layer (re_replace + regex_* shims) and a
+# differential run against the live libc-backed builtins.
+#
+# The differential cases stay inside the territory where POSIX
+# leftmost-longest and Pike-VM leftmost-first agree (no ambiguous
+# alternations), and avoid the builtins' NOTBOL re-anchoring quirks —
+# both divergences are documented in lib/regex_compat.eigs.
+
+# Capture the live builtins BEFORE the compat layer shadows them.
+bi_match is regex_match
+bi_find is regex_find
+bi_replace is regex_replace
+
+load_file of "lib/regex_compat.eigs"
+
+define check(label, got, want) as:
+    if got == want:
+        print of (label + " OK")
+    else:
+        print of (label + " FAIL")
+        print of "  got:"
+        print of got
+        print of "  want:"
+        print of want
+    return 0
+
+# ---- re_replace core behavior ----
+prog is re_compile of "[0-9]+"
+check of ["re_replace basic", re_replace of [prog, "a1 b22 c", "#"], "a# b# c"]
+check of ["re_replace no match", re_replace of [prog, "abc", "#"], "abc"]
+check of ["re_replace whole string", re_replace of [prog, "123", "#"], "#"]
+prog is re_compile of "x*"
+check of ["re_replace zero-width passes chars through", re_replace of [prog, "abc", "-"], "-a-b-c-"]
+check of ["re_replace null prog returns input", re_replace of [null, "abc", "-"], "abc"]
+
+# ---- shim shapes match the builtins' shapes ----
+check of ["shim match groups", regex_match of ["hello world", "h([a-z]+) ([a-z]+)"], ["hello world", "ello", "world"]]
+check of ["shim match no-match is []", regex_match of ["xyz", "[0-9]+"], []]
+check of ["shim match bad pattern is []", regex_match of ["x", "(unclosed"], []]
+check of ["shim match truncates at unset group", regex_match of ["b", "(a)|(b)"], ["b"]]
+check of ["shim find all", regex_find of ["a1 b2 c3", "[a-z][0-9]"], ["a1", "b2", "c3"]]
+check of ["shim find none is []", regex_find of ["abc", "[0-9]"], []]
+check of ["shim replace", regex_replace of ["a1 b2", "[0-9]", "#"], "a# b#"]
+check of ["shim replace bad pattern returns input", regex_replace of ["x", "(", "-"], "x"]
+
+# ---- differential: shim vs live builtin, match + find ----
+cases is []
+append of [cases, ["abc", "[a-z]+"]]
+append of [cases, ["a1 b2 c3", "[a-z][0-9]"]]
+append of [cases, ["user@example.com", "^([a-zA-Z0-9.]+)@([a-zA-Z0-9.]+)$"]]
+append of [cases, ["hello world", "h([a-z]+) ([a-z]+)"]]
+append of [cases, ["  extra   spaces  ", "  +"]]
+append of [cases, ["abc def_9", "\\w+"]]
+append of [cases, ["a.b then axb", "a\\.b"]]
+append of [cases, ["0x1F and 0x2a", "0x[[:xdigit:]]+"]]
+append of [cases, ["foo12bar7", "[[:digit:]]+"]]
+append of [cases, ["aaab aab ab", "a{2}b"]]
+append of [cases, ["aaaa", "a{2,3}"]]
+append of [cases, ["b", "(a)|(b)"]]
+append of [cases, ["no digits here", "[0-9]+"]]
+append of [cases, ["Word And word", "[[:upper:]][[:lower:]]+"]]
+
+for tc in cases:
+    s is tc[0]
+    p is tc[1]
+    check of ["diff match  " + p, regex_match of [s, p], bi_match of [s, p]]
+    check of ["diff find   " + p, regex_find of [s, p], bi_find of [s, p]]
+
+# ---- differential: replace ----
+rcases is []
+append of [rcases, ["a1 b2", "[0-9]", "#"]]
+append of [rcases, ["hello world", "o", "0"]]
+append of [rcases, ["xxx", "x{2}", "-"]]
+append of [rcases, ["abc", "x*", "-"]]
+append of [rcases, ["a-b-c", "-", " "]]
+append of [rcases, ["tabs\tand  spaces", "[[:space:]]+", "_"]]
+append of [rcases, ["nothing", "[0-9]", "#"]]
+
+for tc in rcases:
+    s is tc[0]
+    p is tc[1]
+    rep is tc[2]
+    check of ["diff replace " + p, regex_replace of [s, p, rep], bi_replace of [s, p, rep]]

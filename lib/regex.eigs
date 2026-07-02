@@ -55,6 +55,38 @@ define re_search(args) as:
         return null
     return regex_vm_run of [prog, text, 0, 0]
 
+# ---- re_replace: replace every non-overlapping match with a literal string ----
+# args = [prog, text, replacement]. The replacement is inserted literally
+# (no $1 backreferences — same as the regex_replace builtin). Zero-width
+# matches insert the replacement, then pass one input char through, so an
+# empty-matching pattern behaves like the builtin ("x*" over "abc" gives
+# "-a-b-c-"). Returns text unchanged when prog is null.
+define re_replace(args) as:
+    local prog is args[0]
+    local text is args[1]
+    local rep is args[2]
+    if prog == null:
+        return text
+    local out is ""
+    local pos is 0
+    local n is len of text
+    loop while pos <= n:
+        local caps is regex_vm_run of [prog, text, pos, 0]
+        if caps == null:
+            break
+        local ms is caps[0]
+        local me is caps[1]
+        out is out + text[pos:ms] + rep
+        if me > ms:
+            pos is me
+        else:
+            if me < n:
+                out is out + text[me:me + 1]
+            pos is me + 1
+    if pos <= n:
+        out is out + text[pos:]
+    return out
+
 # ---- re_find_all: all non-overlapping matches ----
 # Returns a list of capture lists (same shape as re_search results).
 define re_find_all(args) as:

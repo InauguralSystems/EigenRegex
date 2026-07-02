@@ -43,6 +43,12 @@ define _advance(st) as:
     st["pos"] is st["pos"] + 1
     return c
 
+# ---- _peek2: char after the current one, or "" ----
+define _peek2(st) as:
+    if (st["pos"] + 1) >= (len of st["src"]):
+        return ""
+    return char_at of [st["src"], st["pos"] + 1]
+
 # ---- _is_metachar: is c a reserved metacharacter? (S4 set) ----
 define _is_metachar(c) as:
     if c == "|":
@@ -69,6 +75,37 @@ define _is_metachar(c) as:
         return 1
     return 0
 
+# ---- _posix_ranges: [:name:] → list of [lo, hi] ranges (ASCII), or null ----
+define _posix_ranges(name) as:
+    if name == "alpha":
+        return [[65, 90], [97, 122]]
+    if name == "digit":
+        return [[48, 57]]
+    if name == "alnum":
+        return [[48, 57], [65, 90], [97, 122]]
+    if name == "upper":
+        return [[65, 90]]
+    if name == "lower":
+        return [[97, 122]]
+    if name == "space":
+        return [[9, 13], [32, 32]]
+    if name == "blank":
+        return [[9, 9], [32, 32]]
+    if name == "xdigit":
+        return [[48, 57], [65, 70], [97, 102]]
+    if name == "punct":
+        return [[33, 47], [58, 64], [91, 96], [123, 126]]
+    if name == "cntrl":
+        return [[0, 31], [127, 127]]
+    if name == "graph":
+        return [[33, 126]]
+    if name == "print":
+        return [[32, 126]]
+    if name == "word":
+        return [[48, 57], [65, 90], [95, 95], [97, 122]]
+    # Unknown class name — parse error (glibc regcomp errors here too).
+    return null
+
 # Forward declarations via mutual recursion are fine in EigenScript
 # (load order doesn't matter for function refs resolved at call time).
 
@@ -91,6 +128,29 @@ define _parse_class(st) as:
         if c == "]":
             _advance of st
             break
+        if c == "[":
+            if (_peek2 of st) == ":":
+                # POSIX class: [:name:] — expand to ranges and continue.
+                _advance of st
+                _advance of st
+                name is ""
+                loop while 1:
+                    d is _peek of st
+                    if d == "":
+                        return null
+                    if d == ":":
+                        break
+                    name is name + (_advance of st)
+                _advance of st
+                if (_peek of st) != "]":
+                    return null
+                _advance of st
+                prs is _posix_ranges of name
+                if prs == null:
+                    return null
+                for pr in prs:
+                    append of [ranges, pr]
+                continue
         lo_c is _advance of st
         lo is ord of lo_c
         if lo < 0:
@@ -145,12 +205,118 @@ define _parse_atom(st) as:
         return ["anchor", "end"]
     if c == "[":
         return _parse_class of st
+    if c == "\\":
+        _advance of st
+        e is _advance of st
+        if e == "":
+            return null
+        if e == "w":
+            return ["class", 0, [[48, 57], [65, 90], [95, 95], [97, 122]]]
+        if e == "W":
+            return ["class", 1, [[48, 57], [65, 90], [95, 95], [97, 122]]]
+        if e == "s":
+            return ["class", 0, [[9, 13], [32, 32]]]
+        if e == "S":
+            return ["class", 1, [[9, 13], [32, 32]]]
+        # Any other escaped char is that literal char. This matches glibc
+        # ERE, including its trap: \d is a literal 'd' there, NOT digits —
+        # verified against the builtin oracle. Use [0-9] or [[:digit:]].
+        return ["lit", e]
     if _is_metachar of c:
         return null
     _advance of st
     return ["lit", c]
 
-# ---- _parse_quant: atom optionally followed by *, *?, +, +?, ?, ?? ----
+# ---- _read_digits: consume a (possibly empty) run of ASCII digits ----
+define _read_digits(st) as:
+    out is ""
+    loop while 1:
+        c is _peek of st
+        if c == "":
+            break
+        if c >= "0":
+            if c <= "9":
+                out is out + (_advance of st)
+            else:
+                break
+        else:
+            break
+    return out
+
+# ---- _parse_curly: '{n}' '{n,}' '{n,m}' (optional lazy '?') after an atom ----
+# Desugars to the existing AST forms so the compiler/VM need no new ops:
+#   e{n}    → e repeated n times
+#   e{n,}   → e ×n then e* (star)
+#   e{n,m}  → e ×n then the nested form (e (e (…)?)?)? with m−n levels
+# The atom subtree is SHARED between repetitions — safe because the compiler
+# never mutates AST nodes. A shared capture group re-saves the same slots
+# each repetition, so the LAST repetition wins — matching glibc ERE
+# ("^(a|b){2}$" on "ab" captures "b"; verified against the builtin oracle).
+# Invalid or unclosed specs are parse errors, as in glibc; bounds cap at 255.
+define _parse_curly(st, atom) as:
+    _advance of st
+    lo_s is _read_digits of st
+    if lo_s == "":
+        return null
+    lo is num of lo_s
+    hi is lo
+    unbounded is 0
+    if (_peek of st) == ",":
+        _advance of st
+        if (_peek of st) == "}":
+            unbounded is 1
+        else:
+            hi_s is _read_digits of st
+            if hi_s == "":
+                return null
+            hi is num of hi_s
+    if (_peek of st) != "}":
+        return null
+    _advance of st
+    lazy is 0
+    if (_peek of st) == "?":
+        _advance of st
+        lazy is 1
+    if lo > 255:
+        return null
+    if unbounded == 0:
+        if hi > 255:
+            return null
+        if hi < lo:
+            return null
+    parts is []
+    i is 0
+    loop while i < lo:
+        append of [parts, atom]
+        i is i + 1
+    if unbounded == 1:
+        if lazy == 1:
+            append of [parts, ["star_lazy", atom]]
+        else:
+            append of [parts, ["star", atom]]
+    else:
+        # Optional tail, innermost-first: m−n nested (e …)? levels.
+        tail is null
+        k is hi - lo
+        loop while k > 0:
+            if tail == null:
+                inner is atom
+            else:
+                inner is ["concat", [atom, tail]]
+            if lazy == 1:
+                tail is ["quest_lazy", inner]
+            else:
+                tail is ["quest", inner]
+            k is k - 1
+        if tail != null:
+            append of [parts, tail]
+    if (len of parts) == 0:
+        return ["empty"]
+    if (len of parts) == 1:
+        return parts[0]
+    return ["concat", parts]
+
+# ---- _parse_quant: atom optionally followed by *, *?, +, +?, ?, ??, {n,m} ----
 # Greedy variants prefer to consume; lazy variants prefer to stop.
 # Encoded by the order of split targets in the compiler.
 define _parse_quant(st) as:
@@ -176,6 +342,8 @@ define _parse_quant(st) as:
             _advance of st
             return ["quest_lazy", atom]
         return ["quest", atom]
+    if c == "{":
+        return _parse_curly of [st, atom]
     return atom
 
 # ---- _parse_concat: zero or more quantified atoms, stop at |, ), EOF ----
