@@ -34,3 +34,9 @@ Each entry should name the gap, the workaround used, and a thought on the upstre
 - **Symptom:** `chr of 97` returns `"a"`, but there's no `ord of "a"` to go the other way. This makes char-class compilation awkward — without numeric codes, ranges and bitmaps are hard to encode efficiently.
 - **Workaround:** Now unnecessary.
 - **Upstream fix:** Shipped alongside gap #1 — `ord of s` returns byte 0..255, or -1 for empty / non-string.
+
+### load_file cross-module write asymmetry — FILED upstream 2026-07-03 (EigenScript#373)
+- **Encountered:** verifying #5 (engine internals clobbering caller globals)
+- **Symptom:** whether a lib function's bare `name is` clobbers a caller global depends on whether the global was declared **before** the `load_file` (clobbered) or after (insulated). Made #5 look like a non-repro — its example used the safe order — while the before-order corrupted the engine's own state from caller globals.
+- **Workaround:** `local` on every function-internal first assignment (the #5 fix, `tests/test_s9_scope.eigs`); the discipline is load-order-proof.
+- **Upstream:** EigenScript#373 — remove or document the asymmetry.

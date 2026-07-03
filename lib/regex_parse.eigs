@@ -39,7 +39,7 @@ define _peek(st) as:
 
 # ---- _advance: consume and return current char ----
 define _advance(st) as:
-    c is _peek of st
+    local c is _peek of st
     st["pos"] is st["pos"] + 1
     return c
 
@@ -116,13 +116,13 @@ define _posix_ranges(name) as:
 # parseable without forcing an escape.
 define _parse_class(st) as:
     _advance of st
-    neg is 0
+    local neg is 0
     if (_peek of st) == "^":
         _advance of st
         neg is 1
-    ranges is []
+    local ranges is []
     loop while 1:
-        c is _peek of st
+        local c is _peek of st
         if c == "":
             return null
         if c == "]":
@@ -133,9 +133,9 @@ define _parse_class(st) as:
                 # POSIX class: [:name:] — expand to ranges and continue.
                 _advance of st
                 _advance of st
-                name is ""
+                local name is ""
                 loop while 1:
-                    d is _peek of st
+                    local d is _peek of st
                     if d == "":
                         return null
                     if d == ":":
@@ -145,14 +145,14 @@ define _parse_class(st) as:
                 if (_peek of st) != "]":
                     return null
                 _advance of st
-                prs is _posix_ranges of name
+                local prs is _posix_ranges of name
                 if prs == null:
                     return null
                 for pr in prs:
                     append of [ranges, pr]
                 continue
-        lo_c is _advance of st
-        lo is ord of lo_c
+        local lo_c is _advance of st
+        local lo is ord of lo_c
         if lo < 0:
             return null
         if (_peek of st) == "-":
@@ -162,8 +162,8 @@ define _parse_class(st) as:
                 append of [ranges, [45, 45]]
                 _advance of st
                 break
-            hi_c is _advance of st
-            hi is ord of hi_c
+            local hi_c is _advance of st
+            local hi is ord of hi_c
             if hi < 0:
                 return null
             if hi < lo:
@@ -180,14 +180,14 @@ define _parse_class(st) as:
 # st["groups"] *before* recursing so nested groups get higher indices than the
 # enclosing one, matching what users expect from r[2*i+2..2*i+3] in the result.
 define _parse_atom(st) as:
-    c is _peek of st
+    local c is _peek of st
     if c == "":
         return null
     if c == "(":
         _advance of st
-        idx is st["groups"]
+        local idx is st["groups"]
         st["groups"] is st["groups"] + 1
-        inner is _parse_alt of st
+        local inner is _parse_alt of st
         if inner == null:
             return null
         if (_peek of st) != ")":
@@ -207,7 +207,7 @@ define _parse_atom(st) as:
         return _parse_class of st
     if c == "\\":
         _advance of st
-        e is _advance of st
+        local e is _advance of st
         if e == "":
             return null
         if e == "w":
@@ -229,9 +229,9 @@ define _parse_atom(st) as:
 
 # ---- _read_digits: consume a (possibly empty) run of ASCII digits ----
 define _read_digits(st) as:
-    out is ""
+    local out is ""
     loop while 1:
-        c is _peek of st
+        local c is _peek of st
         if c == "":
             break
         if c >= "0":
@@ -255,25 +255,25 @@ define _read_digits(st) as:
 # Invalid or unclosed specs are parse errors, as in glibc; bounds cap at 255.
 define _parse_curly(st, atom) as:
     _advance of st
-    lo_s is _read_digits of st
+    local lo_s is _read_digits of st
     if lo_s == "":
         return null
-    lo is num of lo_s
-    hi is lo
-    unbounded is 0
+    local lo is num of lo_s
+    local hi is lo
+    local unbounded is 0
     if (_peek of st) == ",":
         _advance of st
         if (_peek of st) == "}":
             unbounded is 1
         else:
-            hi_s is _read_digits of st
+            local hi_s is _read_digits of st
             if hi_s == "":
                 return null
             hi is num of hi_s
     if (_peek of st) != "}":
         return null
     _advance of st
-    lazy is 0
+    local lazy is 0
     if (_peek of st) == "?":
         _advance of st
         lazy is 1
@@ -284,8 +284,8 @@ define _parse_curly(st, atom) as:
             return null
         if hi < lo:
             return null
-    parts is []
-    i is 0
+    local parts is []
+    local i is 0
     loop while i < lo:
         append of [parts, atom]
         i is i + 1
@@ -296,11 +296,11 @@ define _parse_curly(st, atom) as:
             append of [parts, ["star", atom]]
     else:
         # Optional tail, innermost-first: m−n nested (e …)? levels.
-        tail is null
-        k is hi - lo
+        local tail is null
+        local k is hi - lo
         loop while k > 0:
             if tail == null:
-                inner is atom
+                local inner is atom
             else:
                 inner is ["concat", [atom, tail]]
             if lazy == 1:
@@ -320,10 +320,10 @@ define _parse_curly(st, atom) as:
 # Greedy variants prefer to consume; lazy variants prefer to stop.
 # Encoded by the order of split targets in the compiler.
 define _parse_quant(st) as:
-    atom is _parse_atom of st
+    local atom is _parse_atom of st
     if atom == null:
         return null
-    c is _peek of st
+    local c is _peek of st
     if c == "*":
         _advance of st
         if (_peek of st) == "?":
@@ -348,16 +348,16 @@ define _parse_quant(st) as:
 
 # ---- _parse_concat: zero or more quantified atoms, stop at |, ), EOF ----
 define _parse_concat(st) as:
-    parts is []
+    local parts is []
     loop while 1:
-        c is _peek of st
+        local c is _peek of st
         if c == "":
             break
         if c == "|":
             break
         if c == ")":
             break
-        q is _parse_quant of st
+        local q is _parse_quant of st
         if q == null:
             return null
         append of [parts, q]
@@ -369,13 +369,13 @@ define _parse_concat(st) as:
 
 # ---- _parse_alt: one or more concats separated by | ----
 define _parse_alt(st) as:
-    first is _parse_concat of st
+    local first is _parse_concat of st
     if first == null:
         return null
-    branches is [first]
+    local branches is [first]
     loop while (_peek of st) == "|":
         _advance of st
-        nxt is _parse_concat of st
+        local nxt is _parse_concat of st
         if nxt == null:
             return null
         append of [branches, nxt]
@@ -385,11 +385,11 @@ define _parse_alt(st) as:
 
 # ---- regex_parse: entry point ----
 define regex_parse(pattern) as:
-    st is {}
+    local st is {}
     st["src"] is pattern
     st["pos"] is 0
     st["groups"] is 0
-    ast is _parse_alt of st
+    local ast is _parse_alt of st
     if ast == null:
         return null
     if (_peek of st) != "":
