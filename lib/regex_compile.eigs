@@ -19,13 +19,13 @@
 
 # ---- _emit: append one instruction and return its index ----
 define _emit(prog, inst) as:
-    idx is len of prog
+    local idx is len of prog
     append of [prog, inst]
     return idx
 
 # ---- _compile_node: recursively emit for an AST node ----
 define _compile_node(node, prog) as:
-    tag is node[0]
+    local tag is node[0]
     if tag == "lit":
         _emit of [prog, ["char", node[1]]]
         return 0
@@ -38,7 +38,7 @@ define _compile_node(node, prog) as:
     if tag == "empty":
         return 0
     if tag == "concat":
-        children is node[1]
+        local children is node[1]
         for i in range of (len of children):
             _compile_node of [children[i], prog]
         return 0
@@ -70,7 +70,7 @@ define _compile_node(node, prog) as:
             _emit of [prog, ["assert_end"]]
         return 0
     if tag == "group":
-        idx is node[1]
+        local idx is node[1]
         _emit of [prog, ["save", 2 * idx]]
         _compile_node of [node[2], prog]
         _emit of [prog, ["save", 2 * idx + 1]]
@@ -90,12 +90,12 @@ define _compile_node(node, prog) as:
 #       jmp L1
 #   L3:
 define _compile_star(child, prog, greedy) as:
-    l1 is len of prog
-    split_idx is _emit of [prog, ["split", -1, -1]]
-    l2 is len of prog
+    local l1 is len of prog
+    local split_idx is _emit of [prog, ["split", -1, -1]]
+    local l2 is len of prog
     _compile_node of [child, prog]
     _emit of [prog, ["jmp", l1]]
-    l3 is len of prog
+    local l3 is len of prog
     if greedy == 1:
         prog[split_idx][1] is l2
         prog[split_idx][2] is l3
@@ -114,10 +114,10 @@ define _compile_star(child, prog, greedy) as:
 #       split L2, L1      (try exit first)
 #   L2:
 define _compile_plus(child, prog, greedy) as:
-    l1 is len of prog
+    local l1 is len of prog
     _compile_node of [child, prog]
-    split_idx is _emit of [prog, ["split", -1, -1]]
-    l2 is len of prog
+    local split_idx is _emit of [prog, ["split", -1, -1]]
+    local l2 is len of prog
     if greedy == 1:
         prog[split_idx][1] is l1
         prog[split_idx][2] is l2
@@ -136,10 +136,10 @@ define _compile_plus(child, prog, greedy) as:
 #   L1: <body>
 #   L2:
 define _compile_quest(child, prog, greedy) as:
-    split_idx is _emit of [prog, ["split", -1, -1]]
-    l1 is len of prog
+    local split_idx is _emit of [prog, ["split", -1, -1]]
+    local l1 is len of prog
     _compile_node of [child, prog]
-    l2 is len of prog
+    local l2 is len of prog
     if greedy == 1:
         prog[split_idx][1] is l1
         prog[split_idx][2] is l2
@@ -160,27 +160,27 @@ define _compile_quest(child, prog, greedy) as:
 #   L_END:
 # 2-way is the same with the recursion collapsed.
 define _compile_alt(branches, prog) as:
-    n is len of branches
+    local n is len of branches
     if n == 1:
         _compile_node of [branches[0], prog]
         return 0
     # Emit split placeholder; first target is next pc, second is fixed up
     # after we know where the rest goes.
-    split_idx is _emit of [prog, ["split", -1, -1]]
-    first_pc is len of prog
+    local split_idx is _emit of [prog, ["split", -1, -1]]
+    local first_pc is len of prog
     prog[split_idx][1] is first_pc
     _compile_node of [branches[0], prog]
-    jmp_idx is _emit of [prog, ["jmp", -1]]
-    rest_pc is len of prog
+    local jmp_idx is _emit of [prog, ["jmp", -1]]
+    local rest_pc is len of prog
     prog[split_idx][2] is rest_pc
     # Compile remaining branches as a sub-alt.
-    rest is []
-    i is 1
+    local rest is []
+    local i is 1
     loop while i < n:
         append of [rest, branches[i]]
         i is i + 1
     _compile_alt of [rest, prog]
-    end_pc is len of prog
+    local end_pc is len of prog
     prog[jmp_idx][1] is end_pc
     return 0
 
@@ -190,18 +190,18 @@ define _compile_alt(branches, prog) as:
 # VM can grab both pieces atomically; null patterns still propagate as null
 # from the parser, before we ever get here.
 define regex_compile_ast(ast) as:
-    prog is []
+    local prog is []
     _compile_node of [ast, prog]
     _emit of [prog, ["match"]]
-    n_slots is 0
-    i is 0
+    local n_slots is 0
+    local i is 0
     loop while i < (len of prog):
-        inst is prog[i]
+        local inst is prog[i]
         if inst[0] == "save":
             if inst[1] >= n_slots:
                 n_slots is inst[1] + 1
         i is i + 1
-    out is {}
+    local out is {}
     out["code"] is prog
     out["n_slots"] is n_slots
     return out

@@ -1,0 +1,42 @@
+# Regression for #5: engine internals must not clobber caller globals.
+# EigenScript's `is` updates an existing outer binding, so any engine
+# working variable assigned without `local` overwrites a same-named
+# module variable in the calling script.
+# Common working names used inside the engine — declared BEFORE the
+# engine loads: a function from a load_file'd module CAN write a caller
+# global that existed at load time (declared-after globals happen to be
+# insulated by the env layering — do not rely on that here).
+pos is 42
+c is "keep-c"
+n is 17
+i is 3
+j is 4
+out is "keep-out"
+parts is "keep-parts"
+branches is "keep-branches"
+ranges is "keep-ranges"
+results is "keep-results"
+
+load_file of "lib/regex.eigs"
+
+prog is re_compile of "[a-z]+(x|y)*"
+m is re_search of [prog, "  abcxy  "]
+fa is re_find_all of [prog, "abc xyz"]
+
+define check(label, ok) as:
+    if ok == 1:
+        print of f"{label} OK"
+    else:
+        print of f"{label} FAIL"
+
+check of ["S9 engine ran", (m != null) and ((len of fa) == 2)]
+check of ["S9 pos preserved", pos == 42]
+check of ["S9 c preserved", c == "keep-c"]
+check of ["S9 n preserved", n == 17]
+check of ["S9 i preserved", i == 3]
+check of ["S9 j preserved", j == 4]
+check of ["S9 out preserved", out == "keep-out"]
+check of ["S9 parts preserved", parts == "keep-parts"]
+check of ["S9 branches preserved", branches == "keep-branches"]
+check of ["S9 ranges preserved", ranges == "keep-ranges"]
+check of ["S9 results preserved", results == "keep-results"]
