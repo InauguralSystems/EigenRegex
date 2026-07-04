@@ -14,7 +14,7 @@ POSIX `[[:alpha:]]`-style classes, escapes (`\.` `\w` `\W` `\s` `\S`),
 `^`, `$`, numbered capture groups, `re_replace`, and a builtin-shaped
 compat layer (`lib/regex_compat.eigs`) that drops in for the libc-backed
 `regex_match` / `regex_find` / `regex_replace` builtins.
-347 test checks across S1–S8, all green — including a differential suite
+358 test checks across S1–S9, all green — including a differential suite
 run against the live libc builtins as the oracle.
 
 ## Supported

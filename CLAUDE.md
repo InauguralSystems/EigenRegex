@@ -48,7 +48,7 @@ playground build).
 EigenScript is **not** vendored. Pin v0.13.0 minimum (strings
 needed `<`/`<=` comparison and `ord of s`, both of which shipped in
 v0.13.0 — see GAPS.md for the fix history). CI pins the runtime via
-`.devcontainer/Dockerfile`'s `EIGS_REF` (currently **v0.23.0**) and
+`.devcontainer/Dockerfile`'s `EIGS_REF` (currently **v0.24.0**) and
 builds it from source — bump that to move the tested runtime.
 
 ## Run / test
@@ -69,7 +69,7 @@ $EIGS tests/test_s1_literals.eigs   # ... s2 alt, s3 repeat, s4 classes,
 $EIGS tests/test_s5_anchors_groups.eigs   # s5 anchors/groups, test_smoke
 ```
 
-347 test checks across S1–S8, all green. (`tests/bench_search.eigs` is
+358 test checks across S1–S9, all green (S9 = the #5 caller-globals scope suite). (`tests/bench_search.eigs` is
 a manual timing bench, not part of the gate.)
 
 ## Layout
@@ -137,7 +137,7 @@ builtin-shaped compat layer.
 
 ## Current state
 
-**S8 complete (ERE parity, 2026-07-01).** All 347 checks across S1–S8
+**S8 complete (ERE parity, 2026-07-01).** All checks across S1–S8
 green. S6 added escapes + POSIX classes, S7 added `{n,m}` intervals
 (desugared in the parser — no new VM ops; shared-subtree repetition
 gives glibc's last-repetition-wins capture semantics), S8 added
