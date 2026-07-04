@@ -35,7 +35,7 @@ Each entry should name the gap, the workaround used, and a thought on the upstre
 - **Workaround:** Now unnecessary.
 - **Upstream fix:** Shipped alongside gap #1 — `ord of s` returns byte 0..255, or -1 for empty / non-string.
 
-### load_file cross-module write asymmetry — FILED upstream 2026-07-03 (EigenScript#373)
+### load_file cross-module write asymmetry — FIXED upstream same day (EigenScript#373 → PR #374): module functions now never bind writes into the loader's scope, both orders; the `local` discipline below remains best practice for module self-state
 - **Encountered:** verifying #5 (engine internals clobbering caller globals)
 - **Symptom:** whether a lib function's bare `name is` clobbers a caller global depends on whether the global was declared **before** the `load_file` (clobbered) or after (insulated). Made #5 look like a non-repro — its example used the safe order — while the before-order corrupted the engine's own state from caller globals.
 - **Workaround:** `local` on every function-internal first assignment (the #5 fix, `tests/test_s9_scope.eigs`); the discipline is load-order-proof.
