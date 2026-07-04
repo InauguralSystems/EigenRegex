@@ -48,7 +48,7 @@ playground build).
 EigenScript is **not** vendored. Pin v0.13.0 minimum (strings
 needed `<`/`<=` comparison and `ord of s`, both of which shipped in
 v0.13.0 — see GAPS.md for the fix history). CI pins the runtime via
-`.devcontainer/Dockerfile`'s `EIGS_REF` (currently **v0.25.0**) and
+`.devcontainer/Dockerfile`'s `EIGS_REF` (currently **v0.26.0**) and
 builds it from source — bump that to move the tested runtime.
 
 ## Run / test
