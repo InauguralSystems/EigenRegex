@@ -45,9 +45,10 @@ playground build).
 
 ## Toolchain
 
-EigenScript is **not** vendored. Pin v0.13.0 minimum (strings
-needed `<`/`<=` comparison and `ord of s`, both of which shipped in
-v0.13.0 — see GAPS.md for the fix history). CI pins the runtime via
+EigenScript is **not** vendored. Pin v0.11.5 minimum (string
+`<`/`<=` comparison, `ord of s`, and the `INDEX_GET`
+use-after-free fix all first shipped in v0.11.5 — see GAPS.md
+for the fix history). CI pins the runtime via
 `.devcontainer/Dockerfile`'s `EIGS_REF` (currently **v0.26.0**) and
 builds it from source — bump that to move the tested runtime.
 
@@ -76,12 +77,12 @@ a manual timing bench, not part of the gate.)
 
 | Path | Role |
 |---|---|
-| `lib/regex.eigs` | Public API (`re_compile`, `re_match`, `re_search`, `re_find_all`) |
+| `lib/regex.eigs` | Public API (`re_compile`, `re_match`, `re_search`, `re_find_all`, `re_replace`) |
 | `lib/regex_parse.eigs` | Pattern string → AST |
 | `lib/regex_compile.eigs` | AST → instruction list |
 | `lib/regex_vm.eigs` | Pike-VM executor (parallel-thread simulation) |
 | `lib/regex_compat.eigs` | Builtin-shaped shim (`regex_match`/`regex_find`/`regex_replace` over the Pike VM) |
-| `tests/test_s{1..8}_*.eigs` | Per-stage tests (literals → alt → repeat → classes → anchors/groups → escapes/POSIX → intervals → compat/differential) |
+| `tests/test_s{1..9}_*.eigs` | Per-stage tests (literals → alt → repeat → classes → anchors/groups → escapes/POSIX → intervals → compat/differential → scope) |
 | `tests/test_smoke.eigs` | S0 end-to-end load + API smoke |
 | `tests/run.sh` | Suite runner — runs every test, exits non-zero on any FAIL/crash (the CI gate) |
 | `tests/bench_search.eigs` | Manual scaling bench for `re_search` (not a pass/fail gate) |
@@ -137,7 +138,7 @@ builtin-shaped compat layer.
 
 ## Current state
 
-**S8 complete (ERE parity, 2026-07-01).** All checks across S1–S8
+**S8 complete (ERE parity, 2026-07-01).** All checks across S1–S9
 green. S6 added escapes + POSIX classes, S7 added `{n,m}` intervals
 (desugared in the parser — no new VM ops; shared-subtree repetition
 gives glibc's last-repetition-wins capture semantics), S8 added
