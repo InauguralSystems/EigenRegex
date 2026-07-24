@@ -1,11 +1,13 @@
-# Regression for #5: engine internals must not clobber caller globals.
-# EigenScript's `is` updates an existing outer binding, so any engine
-# working variable assigned without `local` overwrites a same-named
-# module variable in the calling script.
-# Common working names used inside the engine — declared BEFORE the
-# engine loads: a function from a load_file'd module CAN write a caller
-# global that existed at load time (declared-after globals happen to be
-# insulated by the env layering — do not rely on that here).
+# S9: import isolation — engine internals must not touch caller globals.
+#
+# Under the old flat `load_file` model the engine ran in the caller's
+# scope, so any working variable it assigned without `local` (`pos`, `n`,
+# `out`, `branches`, …) clobbered a same-named caller global via `is`
+# (issue #5). Packaging the engine for `import` (#13) moves every internal
+# into the module's own env, so those names — and even a caller's own
+# private `_peek`, which flat load_file would have collided with — are
+# structurally isolated. This suite is the regression guard: the same
+# names, declared before the import, must all survive the engine run.
 pos is 42
 c is "keep-c"
 n is 17
@@ -16,12 +18,13 @@ parts is "keep-parts"
 branches is "keep-branches"
 ranges is "keep-ranges"
 results is "keep-results"
+_peek is "keep-peek"
 
-load_file of "lib/regex.eigs"
+import regex
 
-prog is re_compile of "[a-z]+(x|y)*"
-m is re_search of [prog, "  abcxy  "]
-fa is re_find_all of [prog, "abc xyz"]
+prog is regex.re_compile of "[a-z]+(x|y)*"
+m is regex.re_search of [prog, "  abcxy  "]
+fa is regex.re_find_all of [prog, "abc xyz"]
 
 define check(label, ok) as:
     if ok == 1:
@@ -40,3 +43,4 @@ check of ["S9 parts preserved", parts == "keep-parts"]
 check of ["S9 branches preserved", branches == "keep-branches"]
 check of ["S9 ranges preserved", ranges == "keep-ranges"]
 check of ["S9 results preserved", results == "keep-results"]
+check of ["S9 _peek preserved", _peek == "keep-peek"]
