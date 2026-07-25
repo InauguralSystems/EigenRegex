@@ -37,7 +37,7 @@ check of ["re_replace null prog returns input", regex.re_replace of [null, "abc"
 check of ["shim match groups", regex.compat_match of ["hello world", "h([a-z]+) ([a-z]+)"], ["hello world", "ello", "world"]]
 check of ["shim match no-match is []", regex.compat_match of ["xyz", "[0-9]+"], []]
 check of ["shim match bad pattern is []", regex.compat_match of ["x", "(unclosed"], []]
-check of ["shim match truncates at unset group", regex.compat_match of ["b", "(a)|(b)"], ["b"]]
+check of ["shim match emits null for an unset group", regex.compat_match of ["b", "(a)|(b)"], ["b", null, "b"]]
 check of ["shim find all", regex.compat_find of ["a1 b2 c3", "[a-z][0-9]"], ["a1", "b2", "c3"]]
 check of ["shim find none is []", regex.compat_find of ["abc", "[0-9]"], []]
 check of ["shim replace", regex.compat_replace of ["a1 b2", "[0-9]", "#"], "a# b#"]
