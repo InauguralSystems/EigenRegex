@@ -1030,12 +1030,18 @@ define compat_match(args) as:
     local out is []
     local i is 0
     loop while i < (len of caps):
-        if (len of out) >= 16:
-            break
         local ms is caps[i]
         if ms < 0:
-            break
-        append of [out, s[ms:caps[i + 1]]]
+            # A group that did not participate (an unmatched optional `(x)?`,
+            # or the losing side of an alternation). EigenScript v0.33.0 fixed
+            # the builtin to emit null here and keep going (#629); before that
+            # it TRUNCATED at the first such group and capped the list at 16,
+            # and this shim mirrored both bugs to stay drop-in. Group n sits at
+            # index n on a successful match — that is the documented invariant,
+            # and it only holds if a gap is a hole rather than a full stop.
+            append of [out, null]
+        else:
+            append of [out, s[ms:caps[i + 1]]]
         i is i + 2
     return out
 
