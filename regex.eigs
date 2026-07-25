@@ -1,0 +1,1063 @@
+# ============================================================
+# regex — EigenRegex Pike-VM regex engine (importable package)
+# ============================================================
+#
+# A linear-time (O(n*m), no backtracking) regex engine written in
+# EigenScript. Packaged for `import` so its internals namespace under
+# `regex.*` and never collide with a consumer's globals (issue #13).
+#
+#   import regex
+#
+#   prog is regex.re_compile of "ab|cd"        # null on parse error
+#   ok   is regex.re_match   of [prog, "ab"]    # 1 / 0, anchored full match
+#   span is regex.re_search  of [prog, "..ab"]  # [s,e,g1s,g1e,...] or null
+#   all  is regex.re_find_all of [prog, "abab"] # list of span lists
+#   out  is regex.re_replace of [prog, s, "-"]  # literal replacement
+#
+# EigenScript also ships libc-POSIX `regex_match`/`regex_find`/
+# `regex_replace` builtins; this engine's `re_*` prefix keeps both usable
+# in one script. For environments without libc regex (freestanding /
+# EigenOS / WASM) the builtin-shaped `regex.compat_match` / `compat_find`
+# / `compat_replace` re-expose the builtins' names/shapes on the Pike VM
+# (alias them to the bare names if you need drop-in replacement:
+# `regex_match is regex.compat_match`). Divergences (leftmost-first vs
+# POSIX leftmost-longest, no `\b`) are documented at the compat section.
+#
+# A compiled program is {"code": [...], "n_slots": N}. Internal helpers
+# and the `_rx_*` entry points start with `_` and stay private to the
+# module.
+# ============================================================
+
+# ============================================================
+# EigenRegex — pattern parser (pattern string → AST)
+# ============================================================
+#
+# AST node encoding (lists, tag in slot 0):
+#   ["lit", c]                        — single character literal (c is 1-char string)
+#   ["concat", [child, child, ...]]   — sequence
+#   ["alt", [child, child, ...]]      — alternation
+#   ["star", child]                   — zero or more (greedy)
+#   ["star_lazy", child]              — zero or more (lazy)
+#   ["plus", child]                   — one or more (greedy)
+#   ["plus_lazy", child]              — one or more (lazy)
+#   ["quest", child]                  — zero or one (greedy)
+#   ["quest_lazy", child]             — zero or one (lazy)
+#   ["dot"]                           — any char except newline (S4)
+#   ["class", neg, [[lo, hi], ...]]   — char class with ranges (S4)
+#   ["anchor", which]                 — "start" or "end" (S5)
+#   ["group", index, child]           — capture group (S5; non-capturing in S2)
+#   ["empty"]                         — epsilon
+#
+# Grammar (S5):
+#   alt    → concat ('|' concat)*
+#   concat → quant*
+#   quant  → atom postfix?
+#   postfix → '*' | '*?' | '+' | '+?' | '?' | '??'
+#   atom   → literal | '.' | '^' | '$' | '[' class ']' | '(' alt ')'
+#   class  → '^'? class_atom+
+#   class_atom → char | char '-' char
+#
+# Reserved metacharacters in S5: '|', '(', ')', '*', '+', '?', '.', '[', ']', '^', '$'.
+# Note: '^' inside a char class means negation (handled in _parse_class); at the
+# atom level it means start-of-string anchor.
+
+# ---- _peek: current char or "" at EOF ----
+define _peek(st) as:
+    if st["pos"] >= (len of st["src"]):
+        return ""
+    return char_at of [st["src"], st["pos"]]
+
+# ---- _advance: consume and return current char ----
+define _advance(st) as:
+    local c is _peek of st
+    st["pos"] is st["pos"] + 1
+    return c
+
+# ---- _peek2: char after the current one, or "" ----
+define _peek2(st) as:
+    if (st["pos"] + 1) >= (len of st["src"]):
+        return ""
+    return char_at of [st["src"], st["pos"] + 1]
+
+# ---- _is_metachar: is c a reserved metacharacter? (S4 set) ----
+define _is_metachar(c) as:
+    if c == "|":
+        return 1
+    if c == "(":
+        return 1
+    if c == ")":
+        return 1
+    if c == "*":
+        return 1
+    if c == "+":
+        return 1
+    if c == "?":
+        return 1
+    if c == ".":
+        return 1
+    if c == "[":
+        return 1
+    if c == "]":
+        return 1
+    if c == "^":
+        return 1
+    if c == "$":
+        return 1
+    return 0
+
+# ---- _posix_ranges: [:name:] → list of [lo, hi] ranges (ASCII), or null ----
+define _posix_ranges(name) as:
+    if name == "alpha":
+        return [[65, 90], [97, 122]]
+    if name == "digit":
+        return [[48, 57]]
+    if name == "alnum":
+        return [[48, 57], [65, 90], [97, 122]]
+    if name == "upper":
+        return [[65, 90]]
+    if name == "lower":
+        return [[97, 122]]
+    if name == "space":
+        return [[9, 13], [32, 32]]
+    if name == "blank":
+        return [[9, 9], [32, 32]]
+    if name == "xdigit":
+        return [[48, 57], [65, 70], [97, 102]]
+    if name == "punct":
+        return [[33, 47], [58, 64], [91, 96], [123, 126]]
+    if name == "cntrl":
+        return [[0, 31], [127, 127]]
+    if name == "graph":
+        return [[33, 126]]
+    if name == "print":
+        return [[32, 126]]
+    if name == "word":
+        return [[48, 57], [65, 90], [95, 95], [97, 122]]
+    # Unknown class name — parse error (glibc regcomp errors here too).
+    return null
+
+# Forward declarations via mutual recursion are fine in EigenScript
+# (load order doesn't matter for function refs resolved at call time).
+
+# ---- _parse_class: '[' '^'? (char ('-' char)?)+ ']' ----
+# Encodes the body as a list of [lo, hi] code-point ranges (single chars
+# become [c, c]). A leading '^' flips `neg` to 1. A trailing '-' before
+# ']' is treated as a literal '-' (45) — keeps the common "[a-z-]" pattern
+# parseable without forcing an escape.
+define _parse_class(st) as:
+    _advance of st
+    local neg is 0
+    if (_peek of st) == "^":
+        _advance of st
+        neg is 1
+    local ranges is []
+    loop while 1:
+        local c is _peek of st
+        if c == "":
+            return null
+        if c == "]":
+            _advance of st
+            break
+        if c == "[":
+            if (_peek2 of st) == ":":
+                # POSIX class: [:name:] — expand to ranges and continue.
+                _advance of st
+                _advance of st
+                local name is ""
+                loop while 1:
+                    local d is _peek of st
+                    if d == "":
+                        return null
+                    if d == ":":
+                        break
+                    name is name + (_advance of st)
+                _advance of st
+                if (_peek of st) != "]":
+                    return null
+                _advance of st
+                local prs is _posix_ranges of name
+                if prs == null:
+                    return null
+                for pr in prs:
+                    append of [ranges, pr]
+                continue
+        local lo_c is _advance of st
+        local lo is ord of lo_c
+        if lo < 0:
+            return null
+        if (_peek of st) == "-":
+            _advance of st
+            if (_peek of st) == "]":
+                append of [ranges, [lo, lo]]
+                append of [ranges, [45, 45]]
+                _advance of st
+                break
+            local hi_c is _advance of st
+            local hi is ord of hi_c
+            if hi < 0:
+                return null
+            if hi < lo:
+                return null
+            append of [ranges, [lo, hi]]
+        else:
+            append of [ranges, [lo, lo]]
+    if (len of ranges) == 0:
+        return null
+    return ["class", neg, ranges]
+
+# ---- _parse_atom: literal | '.' | '^' | '$' | '[' class ']' | '(' alt ')' ----
+# Group index is allocated by opening-paren order (PCRE convention). We bump
+# st["groups"] *before* recursing so nested groups get higher indices than the
+# enclosing one, matching what users expect from r[2*i+2..2*i+3] in the result.
+define _parse_atom(st) as:
+    local c is _peek of st
+    if c == "":
+        return null
+    if c == "(":
+        _advance of st
+        local idx is st["groups"]
+        st["groups"] is st["groups"] + 1
+        local inner is _parse_alt of st
+        if inner == null:
+            return null
+        if (_peek of st) != ")":
+            return null
+        _advance of st
+        return ["group", idx, inner]
+    if c == ".":
+        _advance of st
+        return ["dot"]
+    if c == "^":
+        _advance of st
+        return ["anchor", "start"]
+    if c == "$":
+        _advance of st
+        return ["anchor", "end"]
+    if c == "[":
+        return _parse_class of st
+    if c == "\\":
+        _advance of st
+        local e is _advance of st
+        if e == "":
+            return null
+        if e == "w":
+            return ["class", 0, [[48, 57], [65, 90], [95, 95], [97, 122]]]
+        if e == "W":
+            return ["class", 1, [[48, 57], [65, 90], [95, 95], [97, 122]]]
+        if e == "s":
+            return ["class", 0, [[9, 13], [32, 32]]]
+        if e == "S":
+            return ["class", 1, [[9, 13], [32, 32]]]
+        # Any other escaped char is that literal char. This matches glibc
+        # ERE, including its trap: \d is a literal 'd' there, NOT digits —
+        # verified against the builtin oracle. Use [0-9] or [[:digit:]].
+        return ["lit", e]
+    if _is_metachar of c:
+        return null
+    _advance of st
+    return ["lit", c]
+
+# ---- _read_digits: consume a (possibly empty) run of ASCII digits ----
+define _read_digits(st) as:
+    local out is ""
+    loop while 1:
+        local c is _peek of st
+        if c == "":
+            break
+        if c >= "0":
+            if c <= "9":
+                out is out + (_advance of st)
+            else:
+                break
+        else:
+            break
+    return out
+
+# ---- _parse_curly: '{n}' '{n,}' '{n,m}' (optional lazy '?') after an atom ----
+# Desugars to the existing AST forms so the compiler/VM need no new ops:
+#   e{n}    → e repeated n times
+#   e{n,}   → e ×n then e* (star)
+#   e{n,m}  → e ×n then the nested form (e (e (…)?)?)? with m−n levels
+# The atom subtree is SHARED between repetitions — safe because the compiler
+# never mutates AST nodes. A shared capture group re-saves the same slots
+# each repetition, so the LAST repetition wins — matching glibc ERE
+# ("^(a|b){2}$" on "ab" captures "b"; verified against the builtin oracle).
+# Invalid or unclosed specs are parse errors, as in glibc; bounds cap at 255.
+define _parse_curly(st, atom) as:
+    _advance of st
+    local lo_s is _read_digits of st
+    if lo_s == "":
+        return null
+    local lo is num of lo_s
+    local hi is lo
+    local unbounded is 0
+    if (_peek of st) == ",":
+        _advance of st
+        if (_peek of st) == "}":
+            unbounded is 1
+        else:
+            local hi_s is _read_digits of st
+            if hi_s == "":
+                return null
+            hi is num of hi_s
+    if (_peek of st) != "}":
+        return null
+    _advance of st
+    local lazy is 0
+    if (_peek of st) == "?":
+        _advance of st
+        lazy is 1
+    if lo > 255:
+        return null
+    if unbounded == 0:
+        if hi > 255:
+            return null
+        if hi < lo:
+            return null
+    local parts is []
+    local i is 0
+    loop while i < lo:
+        append of [parts, atom]
+        i is i + 1
+    if unbounded == 1:
+        if lazy == 1:
+            append of [parts, ["star_lazy", atom]]
+        else:
+            append of [parts, ["star", atom]]
+    else:
+        # Optional tail, innermost-first: m−n nested (e …)? levels.
+        local tail is null
+        local k is hi - lo
+        loop while k > 0:
+            if tail == null:
+                local inner is atom
+            else:
+                inner is ["concat", [atom, tail]]
+            if lazy == 1:
+                tail is ["quest_lazy", inner]
+            else:
+                tail is ["quest", inner]
+            k is k - 1
+        if tail != null:
+            append of [parts, tail]
+    if (len of parts) == 0:
+        return ["empty"]
+    if (len of parts) == 1:
+        return parts[0]
+    return ["concat", parts]
+
+# ---- _parse_quant: atom optionally followed by *, *?, +, +?, ?, ??, {n,m} ----
+# Greedy variants prefer to consume; lazy variants prefer to stop.
+# Encoded by the order of split targets in the compiler.
+define _parse_quant(st) as:
+    local atom is _parse_atom of st
+    if atom == null:
+        return null
+    local c is _peek of st
+    if c == "*":
+        _advance of st
+        if (_peek of st) == "?":
+            _advance of st
+            return ["star_lazy", atom]
+        return ["star", atom]
+    if c == "+":
+        _advance of st
+        if (_peek of st) == "?":
+            _advance of st
+            return ["plus_lazy", atom]
+        return ["plus", atom]
+    if c == "?":
+        _advance of st
+        if (_peek of st) == "?":
+            _advance of st
+            return ["quest_lazy", atom]
+        return ["quest", atom]
+    if c == "{":
+        return _parse_curly of [st, atom]
+    return atom
+
+# ---- _parse_concat: zero or more quantified atoms, stop at |, ), EOF ----
+define _parse_concat(st) as:
+    local parts is []
+    loop while 1:
+        local c is _peek of st
+        if c == "":
+            break
+        if c == "|":
+            break
+        if c == ")":
+            break
+        local q is _parse_quant of st
+        if q == null:
+            return null
+        append of [parts, q]
+    if (len of parts) == 0:
+        return ["empty"]
+    if (len of parts) == 1:
+        return parts[0]
+    return ["concat", parts]
+
+# ---- _parse_alt: one or more concats separated by | ----
+define _parse_alt(st) as:
+    local first is _parse_concat of st
+    if first == null:
+        return null
+    local branches is [first]
+    loop while (_peek of st) == "|":
+        _advance of st
+        local nxt is _parse_concat of st
+        if nxt == null:
+            return null
+        append of [branches, nxt]
+    if (len of branches) == 1:
+        return first
+    return ["alt", branches]
+
+# ---- _rx_parse: entry point ----
+define _rx_parse(pattern) as:
+    local st is {}
+    st["src"] is pattern
+    st["pos"] is 0
+    st["groups"] is 0
+    local ast is _parse_alt of st
+    if ast == null:
+        return null
+    if (_peek of st) != "":
+        # unconsumed input — usually a stray ')' or similar
+        return null
+    return ast
+# ============================================================
+# EigenRegex — AST → instruction list compiler
+# ============================================================
+#
+# Instruction encoding (list per instruction, opcode in slot 0):
+#   ["char", c]            — match literal char c, advance sp
+#   ["any"]                — match any char (not newline), advance sp (S4)
+#   ["class", neg, ranges] — match char in/out of ranges, advance sp (S4)
+#   ["match"]              — accept
+#   ["jmp", target]        — unconditional jump
+#   ["split", a, b]        — fork: try pc=a, then pc=b
+#   ["save", slot]         — store sp into capture slot (S5)
+#   ["assert_start"]       — match only at sp==0 (S5)
+#   ["assert_end"]         — match only at sp==len(text) (S5)
+#
+# Compiler emits instructions into a flat list. For split/jmp, the target
+# index isn't known when the instruction is emitted, so we emit a placeholder
+# (-1) and backpatch via list element assignment once the body PCs are known.
+
+# ---- _emit: append one instruction and return its index ----
+define _emit(prog, inst) as:
+    local idx is len of prog
+    append of [prog, inst]
+    return idx
+
+# ---- _compile_node: recursively emit for an AST node ----
+define _compile_node(node, prog) as:
+    local tag is node[0]
+    if tag == "lit":
+        _emit of [prog, ["char", node[1]]]
+        return 0
+    if tag == "dot":
+        _emit of [prog, ["any"]]
+        return 0
+    if tag == "class":
+        _emit of [prog, ["class", node[1], node[2]]]
+        return 0
+    if tag == "empty":
+        return 0
+    if tag == "concat":
+        local children is node[1]
+        for i in range of (len of children):
+            _compile_node of [children[i], prog]
+        return 0
+    if tag == "alt":
+        _compile_alt of [node[1], prog]
+        return 0
+    if tag == "star":
+        _compile_star of [node[1], prog, 1]
+        return 0
+    if tag == "star_lazy":
+        _compile_star of [node[1], prog, 0]
+        return 0
+    if tag == "plus":
+        _compile_plus of [node[1], prog, 1]
+        return 0
+    if tag == "plus_lazy":
+        _compile_plus of [node[1], prog, 0]
+        return 0
+    if tag == "quest":
+        _compile_quest of [node[1], prog, 1]
+        return 0
+    if tag == "quest_lazy":
+        _compile_quest of [node[1], prog, 0]
+        return 0
+    if tag == "anchor":
+        if node[1] == "start":
+            _emit of [prog, ["assert_start"]]
+        else:
+            _emit of [prog, ["assert_end"]]
+        return 0
+    if tag == "group":
+        local idx is node[1]
+        _emit of [prog, ["save", 2 * idx]]
+        _compile_node of [node[2], prog]
+        _emit of [prog, ["save", 2 * idx + 1]]
+        return 0
+    # Unknown tag — emit nothing; later stages will extend.
+    return 0
+
+# ---- _compile_star: zero or more, greedy or lazy ----
+# Greedy:
+#   L1: split L2, L3      (try body first)
+#   L2: <body>
+#       jmp L1
+#   L3:
+# Lazy:
+#   L1: split L3, L2      (try exit first)
+#   L2: <body>
+#       jmp L1
+#   L3:
+define _compile_star(child, prog, greedy) as:
+    local l1 is len of prog
+    local split_idx is _emit of [prog, ["split", -1, -1]]
+    local l2 is len of prog
+    _compile_node of [child, prog]
+    _emit of [prog, ["jmp", l1]]
+    local l3 is len of prog
+    if greedy == 1:
+        prog[split_idx][1] is l2
+        prog[split_idx][2] is l3
+    else:
+        prog[split_idx][1] is l3
+        prog[split_idx][2] is l2
+    return 0
+
+# ---- _compile_plus: one or more, greedy or lazy ----
+# Greedy:
+#   L1: <body>
+#       split L1, L2      (try repeat first)
+#   L2:
+# Lazy:
+#   L1: <body>
+#       split L2, L1      (try exit first)
+#   L2:
+define _compile_plus(child, prog, greedy) as:
+    local l1 is len of prog
+    _compile_node of [child, prog]
+    local split_idx is _emit of [prog, ["split", -1, -1]]
+    local l2 is len of prog
+    if greedy == 1:
+        prog[split_idx][1] is l1
+        prog[split_idx][2] is l2
+    else:
+        prog[split_idx][1] is l2
+        prog[split_idx][2] is l1
+    return 0
+
+# ---- _compile_quest: zero or one, greedy or lazy ----
+# Greedy:
+#   split L1, L2          (try body first)
+#   L1: <body>
+#   L2:
+# Lazy:
+#   split L2, L1          (try skip first)
+#   L1: <body>
+#   L2:
+define _compile_quest(child, prog, greedy) as:
+    local split_idx is _emit of [prog, ["split", -1, -1]]
+    local l1 is len of prog
+    _compile_node of [child, prog]
+    local l2 is len of prog
+    if greedy == 1:
+        prog[split_idx][1] is l1
+        prog[split_idx][2] is l2
+    else:
+        prog[split_idx][1] is l2
+        prog[split_idx][2] is l1
+    return 0
+
+# ---- _compile_alt: n-way alternation as a chain of splits ----
+# Pattern for 3-way alt [A, B, C]:
+#   split L_A, L_rest
+#   L_A:    <A>
+#           jmp L_END
+#   L_rest: split L_B, L_C
+#   L_B:    <B>
+#           jmp L_END
+#   L_C:    <C>
+#   L_END:
+# 2-way is the same with the recursion collapsed.
+define _compile_alt(branches, prog) as:
+    local n is len of branches
+    if n == 1:
+        _compile_node of [branches[0], prog]
+        return 0
+    # Emit split placeholder; first target is next pc, second is fixed up
+    # after we know where the rest goes.
+    local split_idx is _emit of [prog, ["split", -1, -1]]
+    local first_pc is len of prog
+    prog[split_idx][1] is first_pc
+    _compile_node of [branches[0], prog]
+    local jmp_idx is _emit of [prog, ["jmp", -1]]
+    local rest_pc is len of prog
+    prog[split_idx][2] is rest_pc
+    # Compile remaining branches as a sub-alt.
+    local rest is []
+    local i is 1
+    loop while i < n:
+        append of [rest, branches[i]]
+        i is i + 1
+    _compile_alt of [rest, prog]
+    local end_pc is len of prog
+    prog[jmp_idx][1] is end_pc
+    return 0
+
+# ---- _rx_compile_ast: AST → {"code": [...], "n_slots": N} ----
+# n_slots is computed by scanning emitted save ops; the VM uses it to
+# pre-size the saves list each thread carries. Returned as a dict so the
+# VM can grab both pieces atomically; null patterns still propagate as null
+# from the parser, before we ever get here.
+define _rx_compile_ast(ast) as:
+    local prog is []
+    _compile_node of [ast, prog]
+    _emit of [prog, ["match"]]
+    local n_slots is 0
+    local i is 0
+    loop while i < (len of prog):
+        local inst is prog[i]
+        if inst[0] == "save":
+            if inst[1] >= n_slots:
+                n_slots is inst[1] + 1
+        i is i + 1
+    local out is {}
+    out["code"] is prog
+    out["n_slots"] is n_slots
+    return out
+# ============================================================
+# EigenRegex — Pike-VM executor (with captures, S5)
+# ============================================================
+#
+# Standard Pike-VM with capture state:
+#   - Two thread lists: current (clist) and next (nlist). Each thread is
+#     a [pc, saves] pair where `saves` is a fresh list of length n_slots
+#     (-1 for "not captured"). Slot 2i / 2i+1 hold group i's start / end.
+#   - _addthread expands every non-consuming op inline:
+#       jmp / split  — recurse to target(s)
+#       save         — clone saves, write slot=sp, recurse to pc+1
+#       assert_start — pass through only at sp == 0
+#       assert_end   — pass through only at sp == n
+#     so the active list only contains threads parked at consuming ops
+#     (char / any / class) or at match.
+#   - Dedup by pc within a step keeps thread count bounded by |program|.
+#     The first thread to reach a pc carries the highest-priority saves
+#     (insertion order = priority); later arrivals would only lower it,
+#     so dropping them is correct.
+#   - Asserts depend on sp, but sp is constant within a single step, so
+#     pc-dedup remains valid (we use fresh nseen for each step).
+#
+# _rx_vm_run signature:
+#   args = [prog, text, start, anchored]
+#     prog       — {"code": [...], "n_slots": N}
+#     text       — input string
+#     start      — starting position
+#     anchored   — 1 → full-string match required from `start`
+#                  0 → leftmost match anywhere from `start`
+#   Returns a flat list [match_start, match_end, g1s, g1e, g2s, g2e, ...]
+#   or null. Group spans appear in opening-paren order; a non-participating
+#   group is reported as [-1, -1].
+
+# ---- _clone_saves: shallow copy of the saves list ----
+# Lists are reference-typed; without a copy, two threads at different pcs
+# would share captures and the second `save` would clobber the first.
+define _clone_saves(saves) as:
+    local out is []
+    local i is 0
+    local n is len of saves
+    loop while i < n:
+        append of [out, saves[i]]
+        i is i + 1
+    return out
+
+# ---- _addthread: add (pc, saves) to thread list, following epsilon edges ----
+# mstart is the input position where this thread's match BEGAN. The anchored
+# runner passes a constant (the fixed start); the single-pass search seeds it
+# with the current sp so each thread remembers its own leftmost origin.
+define _addthread(tlist, seen, pc, saves, sp, n, prog, mstart) as:
+    if seen[pc] == 1:
+        return 0
+    seen[pc] is 1
+    local inst is prog[pc]
+    local op is inst[0]
+    if op == "jmp":
+        _addthread of [tlist, seen, inst[1], saves, sp, n, prog, mstart]
+        return 0
+    if op == "split":
+        _addthread of [tlist, seen, inst[1], saves, sp, n, prog, mstart]
+        _addthread of [tlist, seen, inst[2], saves, sp, n, prog, mstart]
+        return 0
+    if op == "save":
+        local new_saves is _clone_saves of saves
+        new_saves[inst[1]] is sp
+        _addthread of [tlist, seen, pc + 1, new_saves, sp, n, prog, mstart]
+        return 0
+    if op == "assert_start":
+        if sp == 0:
+            _addthread of [tlist, seen, pc + 1, saves, sp, n, prog, mstart]
+        return 0
+    if op == "assert_end":
+        if sp == n:
+            _addthread of [tlist, seen, pc + 1, saves, sp, n, prog, mstart]
+        return 0
+    append of [tlist, [pc, saves, mstart]]
+    return 0
+
+# ---- _try_match_at: run the VM starting at sp=start ----
+# Returns [end_sp, saves] of the highest-priority match, or null.
+#
+# Pike-VM priority rule (same as S1-S4): when MATCH is hit at clist[i],
+# kill clist[i+1..] (lower priority) but continue stepping — earlier
+# threads in this step may have queued higher-priority nlist work whose
+# later MATCH overrides the current one.
+define _try_match_at(prog, text, start, n_slots) as:
+    local n is len of text
+    local plen is len of prog
+    local clist is []
+    local nlist is []
+    local cseen is zeros of plen
+    local nseen is zeros of plen
+    local init_saves is []
+    local s is 0
+    loop while s < n_slots:
+        append of [init_saves, -1]
+        s is s + 1
+    _addthread of [clist, cseen, 0, init_saves, start, n, prog, start]
+    local sp is start
+    local matched is 0
+    local matched_sp is -1
+    local matched_saves is null
+    loop while sp <= n:
+        local i is 0
+        loop while i < (len of clist):
+            local t is clist[i]
+            local pc is t[0]
+            local saves is t[1]
+            local inst is prog[pc]
+            local op is inst[0]
+            if op == "match":
+                matched is 1
+                matched_sp is sp
+                matched_saves is saves
+                # Kill remaining (lower-priority) threads in clist.
+                break
+            if op == "char":
+                if sp < n:
+                    local c is char_at of [text, sp]
+                    if c == inst[1]:
+                        _addthread of [nlist, nseen, pc + 1, saves, sp + 1, n, prog, start]
+            if op == "any":
+                if sp < n:
+                    local c is char_at of [text, sp]
+                    if c != "\n":
+                        _addthread of [nlist, nseen, pc + 1, saves, sp + 1, n, prog, start]
+            if op == "class":
+                if sp < n:
+                    local c is char_at of [text, sp]
+                    local code is ord of c
+                    local ranges is inst[2]
+                    local in_range is 0
+                    local j is 0
+                    loop while j < (len of ranges):
+                        local r is ranges[j]
+                        if code >= r[0]:
+                            if code <= r[1]:
+                                in_range is 1
+                                break
+                        j is j + 1
+                    local take is in_range
+                    if inst[1] == 1:
+                        if in_range == 1:
+                            take is 0
+                        else:
+                            take is 1
+                    if take == 1:
+                        _addthread of [nlist, nseen, pc + 1, saves, sp + 1, n, prog, start]
+            i is i + 1
+        clist is nlist
+        cseen is nseen
+        nlist is []
+        nseen is zeros of plen
+        sp is sp + 1
+        if (len of clist) == 0:
+            if matched == 1:
+                return [matched_sp, matched_saves]
+            return null
+    if matched == 1:
+        return [matched_sp, matched_saves]
+    return null
+
+# ---- _build_result: flatten [start, end] + saves into a single result list ----
+# Caller already knows `start` (the position passed to _try_match_at) and
+# `end` (returned end_sp). Group spans interleave as g1s, g1e, g2s, g2e, ...
+define _build_result(start, end, saves) as:
+    local out is [start, end]
+    local i is 0
+    local n is len of saves
+    loop while i < n:
+        append of [out, saves[i]]
+        i is i + 1
+    return out
+
+# ---- _search: single linear pass, leftmost match (implicit .*? prefix) ----
+# Re-running _try_match_at from every start position is O(n^2) (each of n starts
+# runs the O(n) VM). Instead make ONE pass: at each step, while no match is
+# locked in yet, seed a fresh start thread at pc=0 (mstart=sp) at LOWEST
+# priority. Threads seeded earlier (smaller mstart) stay higher priority via
+# pc-dedup, so the first MATCH in priority order is the leftmost-longest one —
+# byte-identical to the loop version, but O(n*|prog|), restoring the Pike-VM
+# linear-time guarantee.
+define _search(prog, text, start, n_slots) as:
+    local n is len of text
+    local plen is len of prog
+    local clist is []
+    local nlist is []
+    local cseen is zeros of plen
+    local nseen is zeros of plen
+    local sp is start
+    local matched is 0
+    local m_start is -1
+    local m_end is -1
+    local m_saves is null
+    loop while sp <= n:
+        # Seed a new start thread (lowest priority) until a match is locked in;
+        # a start to the right of an existing match can never be leftmost.
+        if matched == 0:
+            local init_saves is []
+            local s is 0
+            loop while s < n_slots:
+                append of [init_saves, -1]
+                s is s + 1
+            _addthread of [clist, cseen, 0, init_saves, sp, n, prog, sp]
+        local i is 0
+        loop while i < (len of clist):
+            local t is clist[i]
+            local pc is t[0]
+            local saves is t[1]
+            local mstart is t[2]
+            local inst is prog[pc]
+            local op is inst[0]
+            if op == "match":
+                matched is 1
+                m_start is mstart
+                m_end is sp
+                m_saves is saves
+                # Kill remaining (lower-priority) threads in clist this step.
+                break
+            if op == "char":
+                if sp < n:
+                    local c is char_at of [text, sp]
+                    if c == inst[1]:
+                        _addthread of [nlist, nseen, pc + 1, saves, sp + 1, n, prog, mstart]
+            if op == "any":
+                if sp < n:
+                    local c is char_at of [text, sp]
+                    if c != "\n":
+                        _addthread of [nlist, nseen, pc + 1, saves, sp + 1, n, prog, mstart]
+            if op == "class":
+                if sp < n:
+                    local c is char_at of [text, sp]
+                    local code is ord of c
+                    local ranges is inst[2]
+                    local in_range is 0
+                    local j is 0
+                    loop while j < (len of ranges):
+                        local r is ranges[j]
+                        if code >= r[0]:
+                            if code <= r[1]:
+                                in_range is 1
+                                break
+                        j is j + 1
+                    local take is in_range
+                    if inst[1] == 1:
+                        if in_range == 1:
+                            take is 0
+                        else:
+                            take is 1
+                    if take == 1:
+                        _addthread of [nlist, nseen, pc + 1, saves, sp + 1, n, prog, mstart]
+            i is i + 1
+        clist is nlist
+        cseen is nseen
+        nlist is []
+        nseen is zeros of plen
+        sp is sp + 1
+        # After a match is locked in, higher-priority threads may still extend it
+        # (greedy); once they all drain, the recorded match is final.
+        if matched == 1:
+            if (len of clist) == 0:
+                return [m_start, m_end, m_saves]
+    if matched == 1:
+        return [m_start, m_end, m_saves]
+    return null
+
+# ---- _rx_vm_run: entry point ----
+define _rx_vm_run(args) as:
+    local prog is args[0]
+    local text is args[1]
+    local start is args[2]
+    local anchored is args[3]
+    local code is prog["code"]
+    local n_slots is prog["n_slots"]
+    local n is len of text
+    if anchored == 1:
+        local result is _try_match_at of [code, text, start, n_slots]
+        if result == null:
+            return null
+        if result[0] != n:
+            return null
+        return _build_result of [start, result[0], result[1]]
+    # Search: single linear pass with an implicit .*? prefix (leftmost match).
+    local result is _search of [code, text, start, n_slots]
+    if result == null:
+        return null
+    return _build_result of [result[0], result[1], result[2]]
+# ---- public API: re_compile / re_match / re_search / re_replace / re_find_all ----
+define re_compile(pattern) as:
+    local ast is _rx_parse of pattern
+    if ast == null:
+        return null
+    return _rx_compile_ast of ast
+
+# ---- re_match: anchored full-string match ----
+# Returns 1 if pattern matches the entire string, else 0.
+define re_match(args) as:
+    local prog is args[0]
+    local text is args[1]
+    if prog == null:
+        return 0
+    local caps is _rx_vm_run of [prog, text, 0, 1]
+    if caps == null:
+        return 0
+    return 1
+
+# ---- re_search: leftmost match anywhere in the string ----
+# Returns [start, end, g1s, g1e, g2s, g2e, ...] or null. Non-participating
+# groups report -1, -1.
+define re_search(args) as:
+    local prog is args[0]
+    local text is args[1]
+    if prog == null:
+        return null
+    return _rx_vm_run of [prog, text, 0, 0]
+
+# ---- re_replace: replace every non-overlapping match with a literal string ----
+# args = [prog, text, replacement]. The replacement is inserted literally
+# (no $1 backreferences — same as the regex_replace builtin). Zero-width
+# matches insert the replacement, then pass one input char through, so an
+# empty-matching pattern behaves like the builtin ("x*" over "abc" gives
+# "-a-b-c-"). Returns text unchanged when prog is null.
+define re_replace(args) as:
+    local prog is args[0]
+    local text is args[1]
+    local rep is args[2]
+    if prog == null:
+        return text
+    local out is ""
+    local pos is 0
+    local n is len of text
+    loop while pos <= n:
+        local caps is _rx_vm_run of [prog, text, pos, 0]
+        if caps == null:
+            break
+        local ms is caps[0]
+        local me is caps[1]
+        local out is out + text[pos:ms] + rep
+        if me > ms:
+            local pos is me
+        else:
+            if me < n:
+                out is out + text[me:me + 1]
+            pos is me + 1
+    if pos <= n:
+        out is out + text[pos:]
+    return out
+
+# ---- re_find_all: all non-overlapping matches ----
+# Returns a list of capture lists (same shape as re_search results).
+define re_find_all(args) as:
+    local prog is args[0]
+    local text is args[1]
+    local results is []
+    if prog == null:
+        return results
+    local pos is 0
+    local n is len of text
+    loop while pos <= n:
+        local caps is _rx_vm_run of [prog, text, pos, 0]
+        if caps == null:
+            return results
+        append of [results, caps]
+        # Advance past the match to avoid infinite loops on zero-width matches.
+        if caps[1] > caps[0]:
+            pos is caps[1]
+        else:
+            pos is caps[0] + 1
+    return results
+# ============================================================
+# compat_* — builtin-shaped shim (namespaced; does NOT shadow builtins)
+# ============================================================
+# Drop-in shapes of EigenScript's libc-backed `regex_match` / `regex_find`
+# / `regex_replace` on top of the Pike VM — same arg shapes, same
+# substring-list returns. Namespaced as `regex.compat_*`; alias to the
+# bare builtin names where libc regex is absent (freestanding/EigenOS/WASM):
+#   regex_match is regex.compat_match
+# Documented divergences from the libc builtins (deliberate):
+#   - POSIX ERE is leftmost-LONGEST; the Pike VM is leftmost-FIRST
+#     (greedy priority). "a|ab" on "ab" differs.
+#   - \b / \B word boundaries are unsupported (parse error).
+#   - builtin `^` can re-anchor mid-string after a match (no REG_NOTBOL);
+#     here `^` means position 0 only.
+#   - builtin regex_find drops a zero-width match at end-of-string.
+# ============================================================
+define compat_match(args) as:
+    local s is args[0]
+    local pattern is args[1]
+    local prog is re_compile of pattern
+    if prog == null:
+        return []
+    local caps is re_search of [prog, s]
+    if caps == null:
+        return []
+    local out is []
+    local i is 0
+    loop while i < (len of caps):
+        if (len of out) >= 16:
+            break
+        local ms is caps[i]
+        if ms < 0:
+            break
+        append of [out, s[ms:caps[i + 1]]]
+        i is i + 2
+    return out
+
+# ---- regex_find: [string, pattern] → list of matched substrings ----
+define compat_find(args) as:
+    local s is args[0]
+    local pattern is args[1]
+    local prog is re_compile of pattern
+    if prog == null:
+        return []
+    local out is []
+    local spans is re_find_all of [prog, s]
+    for m in spans:
+        append of [out, s[m[0]:m[1]]]
+    return out
+
+# ---- regex_replace: [string, pattern, replacement] → string ----
+define compat_replace(args) as:
+    local s is args[0]
+    local pattern is args[1]
+    local rep is args[2]
+    local prog is re_compile of pattern
+    if prog == null:
+        return s
+    return re_replace of [prog, s, rep]

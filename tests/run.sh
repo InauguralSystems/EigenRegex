@@ -26,8 +26,19 @@ for t in tests/test_s*.eigs; do
 done
 
 echo "---"
+# Consumer-shaped package smoke: stage into eigs_modules/ and `import regex`.
+if ! EIGENSCRIPT="$EIGS" bash "$(dirname "$0")/test_pkg_smoke.sh" >/tmp/pkg_smoke.$$ 2>&1; then
+    echo "FAIL: test_pkg_smoke.sh"
+    grep -iE 'FAIL|error' /tmp/pkg_smoke.$$ | head -5
+    fail=1
+else
+    echo "PASS: test_pkg_smoke.sh"
+fi
+rm -f /tmp/pkg_smoke.$$
+
+echo "---"
 if [ "$fail" -eq 0 ]; then
-    echo "ALL PASSED ($total_ok checks)"
+    echo "ALL PASSED ($total_ok checks + package smoke)"
 else
     echo "SOME FAILED"
 fi

@@ -35,9 +35,11 @@ libc-POSIX-backed builtins. EigenRegex prefixes its public API with
 | match rule     | leftmost-longest (POSIX) | leftmost-first (Pike-VM priority) |
 | return shape   | substring list      | positional spans `[s, e, ...]` |
 
-`lib/regex_compat.eigs` re-exposes the builtins' exact names/shapes on
-top of the Pike VM (for freestanding/WASM); divergences are documented
-in its header — chiefly leftmost-longest vs leftmost-first, and no `\b`.
+The namespaced `regex.compat_*` functions re-expose the builtins' exact
+shapes on top of the Pike VM (for freestanding/WASM); divergences are
+documented in the compat section of `regex.eigs` — chiefly
+leftmost-longest vs leftmost-first, and no `\b`. Alias them to the bare
+builtin names where libc regex is gone: `regex_match is regex.compat_match`.
 
 **Pick the builtin for hot paths; pick `re_*` when you need a linear
 worst-case guarantee or libc isn't available** (e.g. the WASM
@@ -49,8 +51,10 @@ EigenScript is **not** vendored. Pin v0.11.5 minimum (string
 `<`/`<=` comparison, `ord of s`, and the `INDEX_GET`
 use-after-free fix all first shipped in v0.11.5 — see GAPS.md
 for the fix history). CI pins the runtime via
-`.devcontainer/Dockerfile`'s `EIGS_REF` (currently **v0.26.0**) and
-builds it from source — bump that to move the tested runtime.
+`.devcontainer/Dockerfile`'s `EIGS_REF` (currently **v0.32.0**) and
+builds it from source — bump that to move the tested runtime. (The
+`import`-based package model needs a runtime with `import`; v0.32.0 has
+it.)
 
 ## Run / test
 
@@ -70,21 +74,26 @@ $EIGS tests/test_s1_literals.eigs   # ... s2 alt, s3 repeat, s4 classes,
 $EIGS tests/test_s5_anchors_groups.eigs   # s5 anchors/groups, test_smoke
 ```
 
-358 test checks across S1–S9, all green (S9 = the #5 caller-globals scope suite). (`tests/bench_search.eigs` is
-a manual timing bench, not part of the gate.)
+Tests run from the repo root (as `run.sh` does), where `import regex`
+resolves to the root `regex.eigs`. `tests/test_pkg_smoke.sh` additionally
+stages the package into `eigs_modules/regex/` and imports it the way a
+real consumer (`--pkg add`) would.
+
+359 test checks across S1–S9 plus the package smoke, all green (S9 = the
+import-isolation guard, formerly the #5 caller-globals scope suite).
+(`tests/bench_search.eigs` is a manual timing bench, not part of the gate.)
 
 ## Layout
 
 | Path | Role |
 |---|---|
-| `lib/regex.eigs` | Public API (`re_compile`, `re_match`, `re_search`, `re_find_all`, `re_replace`) |
-| `lib/regex_parse.eigs` | Pattern string → AST |
-| `lib/regex_compile.eigs` | AST → instruction list |
-| `lib/regex_vm.eigs` | Pike-VM executor (parallel-thread simulation) |
-| `lib/regex_compat.eigs` | Builtin-shaped shim (`regex_match`/`regex_find`/`regex_replace` over the Pike VM) |
-| `tests/test_s{1..9}_*.eigs` | Per-stage tests (literals → alt → repeat → classes → anchors/groups → escapes/POSIX → intervals → compat/differential → scope) |
-| `tests/test_smoke.eigs` | S0 end-to-end load + API smoke |
-| `tests/run.sh` | Suite runner — runs every test, exits non-zero on any FAIL/crash (the CI gate) |
+| `regex.eigs` | The whole package in one importable file: parse (string→AST) → compile (AST→instructions) → Pike-VM executor → public API. Public members namespace under `regex.*`; `_`-prefixed names (`_rx_parse`, `_peek`, …) are private. The build is assembled from the former `lib/` split — edit `regex.eigs` directly, the split is gone. |
+| `eigs.json` | Package manifest (`name: regex`) — makes `import regex` resolve this repo. |
+| Public surface | spans: `re_compile`/`re_match`/`re_search`/`re_find_all`/`re_replace`; builtin-shaped: `compat_match`/`compat_find`/`compat_replace` |
+| `tests/test_s{1..9}_*.eigs` | Per-stage tests (literals → alt → repeat → classes → anchors/groups → escapes/POSIX → intervals → compat/differential → import-isolation) |
+| `tests/test_smoke.eigs` | S0 end-to-end import + API smoke |
+| `tests/test_pkg_smoke.sh` | Consumer-shaped: stages `eigs_modules/regex/` and `import`s it, asserts public surface + internal privacy |
+| `tests/run.sh` | Suite runner — runs every test + the package smoke, exits non-zero on any FAIL/crash (the CI gate) |
 | `tests/bench_search.eigs` | Manual scaling bench for `re_search` (not a pass/fail gate) |
 | `.devcontainer/`, `.github/workflows/test.yml` | Pinned (`EIGS_REF`) devcontainer + CI running the suite |
 | `GAPS.md` | Upstream-gap ledger (with fixed/open status per entry) |
@@ -138,11 +147,20 @@ builtin-shaped compat layer.
 
 ## Current state
 
+**Packaged for `import` (issue #13, 2026-07-24).** The former five-file
+`lib/` split is folded into one importable root `regex.eigs` + `eigs.json`
+(name `regex`). Consumers `import regex` and reach `regex.re_*` /
+`regex.compat_*`; every internal is `_`-private, so the whole
+caller-globals collision class (issue #5, and eigen-sheet's `_peek` clash
+in #13) is structurally gone — not just mitigated by `local`. `S9`
+flipped from the load_file scope suite to the import-isolation guard.
+Edit `regex.eigs` directly; the `lib/` split no longer exists.
+
 **S8 complete (ERE parity, 2026-07-01).** All checks across S1–S9
 green. S6 added escapes + POSIX classes, S7 added `{n,m}` intervals
 (desugared in the parser — no new VM ops; shared-subtree repetition
 gives glibc's last-repetition-wins capture semantics), S8 added
-`re_replace` + `lib/regex_compat.eigs` and a differential suite that
+`re_replace` + the builtin-shaped compat layer and a differential suite that
 runs shim-vs-builtin over shared inputs with the libc builtins as the
 oracle. Built for EigenScript's freestanding profile (EigenOS): the
 compat layer is the planned regex story when libc's regcomp is gone.

@@ -1,6 +1,6 @@
 # S1: literals + concatenation
 
-load_file of "lib/regex.eigs"
+import regex
 
 failures is 0
 
@@ -17,40 +17,40 @@ define check(label, got, want) as:
     return 0
 
 # ---- empty pattern ----
-prog is re_compile of ""
-check of ["empty pattern matches empty", re_match of [prog, ""], 1]
+prog is regex.re_compile of ""
+check of ["empty pattern matches empty", regex.re_match of [prog, ""], 1]
 # NOTE: must bind subscripted call result to a local before passing it as an
-# arg — passing `(re_search of ...)[0]` inline reads uninitialized memory
+# arg — passing `(regex.re_search of ...)[0]` inline reads uninitialized memory
 # in EigenScript (see /home/jon/EigenRegex/GAPS.md).
-r is re_search of [prog, "abc"]
+r is regex.re_search of [prog, "abc"]
 check of ["empty pattern matches anywhere via search", r[0], 0]
 
 # ---- single literal ----
-prog is re_compile of "a"
-check of ["a matches a", re_match of [prog, "a"], 1]
-check of ["a does not match b", re_match of [prog, "b"], 0]
-check of ["a does not match empty", re_match of [prog, ""], 0]
-check of ["a does not full-match ab (anchored)", re_match of [prog, "ab"], 0]
+prog is regex.re_compile of "a"
+check of ["a matches a", regex.re_match of [prog, "a"], 1]
+check of ["a does not match b", regex.re_match of [prog, "b"], 0]
+check of ["a does not match empty", regex.re_match of [prog, ""], 0]
+check of ["a does not full-match ab (anchored)", regex.re_match of [prog, "ab"], 0]
 
 # ---- multi-char literal sequence ----
-prog is re_compile of "abc"
-check of ["abc matches abc", re_match of [prog, "abc"], 1]
-check of ["abc does not match abd", re_match of [prog, "abd"], 0]
-check of ["abc does not match ab", re_match of [prog, "ab"], 0]
-check of ["abc does not match abcd (anchored)", re_match of [prog, "abcd"], 0]
+prog is regex.re_compile of "abc"
+check of ["abc matches abc", regex.re_match of [prog, "abc"], 1]
+check of ["abc does not match abd", regex.re_match of [prog, "abd"], 0]
+check of ["abc does not match ab", regex.re_match of [prog, "ab"], 0]
+check of ["abc does not match abcd (anchored)", regex.re_match of [prog, "abcd"], 0]
 
 # ---- search (unanchored) ----
-prog is re_compile of "abc"
-r is re_search of [prog, "xxabcyy"]
+prog is regex.re_compile of "abc"
+r is regex.re_search of [prog, "xxabcyy"]
 check of ["search finds abc at pos 2", r[0], 2]
 check of ["search end at pos 5", r[1], 5]
 
-r is re_search of [prog, "no match here"]
+r is regex.re_search of [prog, "no match here"]
 check of ["search returns null on no match", r, null]
 
 # ---- find_all ----
-prog is re_compile of "ab"
-all is re_find_all of [prog, "abxabyab"]
+prog is regex.re_compile of "ab"
+all is regex.re_find_all of [prog, "abxabyab"]
 check of ["find_all count", len of all, 3]
 check of ["find_all first start", all[0][0], 0]
 check of ["find_all second start", all[1][0], 3]

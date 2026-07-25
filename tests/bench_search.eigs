@@ -5,7 +5,7 @@
 # the single-pass implicit-.*?-prefix search is O(n*|prog|). Run:
 #   eigenscript tests/bench_search.eigs
 # and check the ms roughly DOUBLE (not quadruple) as n doubles.
-load_file of "lib/regex.eigs"
+import regex
 
 define make_as(n) as:
     local s is ""
@@ -13,12 +13,12 @@ define make_as(n) as:
         s is s + s + "a"
     return substr of [s, 0, n]
 
-prog is re_compile of "a*b"
+prog is regex.re_compile of "a*b"
 
 define bench(n) as:
     local txt is make_as of n
     local t0 is monotonic_ms of null
-    local r is re_search of [prog, txt]
+    local r is regex.re_search of [prog, txt]
     local t1 is monotonic_ms of null
     print of (f"n={n}  ms={t1 - t0}  match={r}")
     return 0
