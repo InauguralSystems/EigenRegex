@@ -85,18 +85,17 @@ import-isolation guard, formerly the #5 caller-globals scope suite).
 
 ## Layout
 
-| Path | Role |
-|---|---|
-| `regex.eigs` | The whole package in one importable file: parse (string→AST) → compile (AST→instructions) → Pike-VM executor → public API. Public members namespace under `regex.*`; `_`-prefixed names (`_rx_parse`, `_peek`, …) are private. The build is assembled from the former `lib/` split — edit `regex.eigs` directly, the split is gone. |
-| `eigs.json` | Package manifest (`name: regex`) — makes `import regex` resolve this repo. |
-| Public surface | spans: `re_compile`/`re_match`/`re_search`/`re_find_all`/`re_replace`; builtin-shaped: `compat_match`/`compat_find`/`compat_replace` |
-| `tests/test_s{1..9}_*.eigs` | Per-stage tests (literals → alt → repeat → classes → anchors/groups → escapes/POSIX → intervals → compat/differential → import-isolation) |
-| `tests/test_smoke.eigs` | S0 end-to-end import + API smoke |
-| `tests/test_pkg_smoke.sh` | Consumer-shaped: stages `eigs_modules/regex/` and `import`s it, asserts public surface + internal privacy |
-| `tests/run.sh` | Suite runner — runs every test + the package smoke, exits non-zero on any FAIL/crash (the CI gate) |
-| `tests/bench_search.eigs` | Manual scaling bench for `re_search` (not a pass/fail gate) |
-| `.devcontainer/`, `.github/workflows/test.yml` | Pinned (`EIGS_REF`) devcontainer + CI running the suite |
-| `GAPS.md` | Upstream-gap ledger (with fixed/open status per entry) |
+- **`regex.eigs` is the whole package in one importable file** (parse → compile
+  → Pike-VM executor → public API). Public members namespace under `regex.*`;
+  `_`-prefixed names (`_rx_parse`, `_peek`, …) are private. It was assembled
+  from the former `lib/` split — **edit `regex.eigs` directly, the split is
+  gone.**
+- `eigs.json` is the package manifest (`name: regex`) — what makes
+  `import regex` resolve this repo.
+- `tests/test_s{1..9}_*.eigs` are per-stage (literals → alt → repeat →
+  classes → anchors/groups → escapes/POSIX → intervals → compat/differential
+  → import-isolation); `tests/bench_search.eigs` is a manual bench, not a gate.
+- `GAPS.md` — upstream-gap ledger (fixed/open status per entry).
 
 ## Architecture notes
 
