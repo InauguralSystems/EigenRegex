@@ -34,6 +34,7 @@ PC_BG is [50, 70, 110]
 # ---- all mutable tester state (the _ui pattern) ----
 T is {
     "eval": null,
+    "pl": null,
     "step": 0,
     "root": null,
     "pattern_in": null,
@@ -87,8 +88,8 @@ define show_step(n) as:
     T.step_lb.text is f"step {si}/{ns}  sp={st.sp}  char {ch}  alive {sm.alive} died {sm.died} matched {sm.matched} cut {sm.cut}"
     local ttext is ""
     local ths is st.threads
-    local prog is regex.re_compile of (T.pattern_in.text)
-    local pl is prog_listing of prog
+    # compiled once per refresh (compile-once gotcha), reused per step
+    local pl is T.pl
     local pspans is []
     for i in range of (len of ths):
         local th is ths[i]
@@ -107,6 +108,9 @@ define refresh(n) as:
     local t is T.text_in.text
     T.eval is tester_core.tester_eval of [p, t]
     local ev is T.eval
+    T.pl is null
+    if ev.ok == 1:
+        T.pl is prog_listing of (regex.re_compile of p)
     T.hl_view.text is t
     local vspans is []
     local sp is ev.spans
