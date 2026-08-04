@@ -1,0 +1,87 @@
+# S11: tester_core — the tester's model must be byte-identical to the
+# engine (the #18 oracle: the highlight layer must not fork match
+# semantics). Spans are re-derived here from re_find_all independently
+# and diffed against tester_spans' output.
+
+import regex
+import tester_core
+
+failures is 0
+
+define check(label, got, want) as:
+    if got == want:
+        print of (label + " OK")
+    else:
+        print of (label + " FAIL")
+        print of "  got:"
+        print of got
+        print of "  want:"
+        print of want
+        failures is failures + 1
+    return 0
+
+# ---- oracle: matches from tester_eval == re_find_all, elementwise ----
+patterns is ["(a+)(b?)c", "colou?r", "[0-9]+", "^x"]
+texts is ["aabc abc", "color colour", "a1 b22 c333", "xyz"]
+for i in range of (len of patterns):
+    p is patterns[i]
+    t is texts[i]
+    ev is tester_core.tester_eval of [p, t]
+    prog is regex.re_compile of p
+    want is regex.re_find_all of [prog, t]
+    got is ev.matches
+    same is 1
+    if (len of got) != (len of want):
+        same is 0
+    else:
+        for mi in range of (len of want):
+            wm is want[mi]
+            gm is got[mi]
+            if (len of gm) != (len of wm):
+                same is 0
+            else:
+                for ci in range of (len of wm):
+                    if gm[ci] != wm[ci]:
+                        same is 0
+    check of [f"tester matches == engine for '{p}'", same, 1]
+
+# ---- spans: derived from the matches, groups after their match ----
+ev is tester_core.tester_eval of ["(a+)(b?)c", "aabc"]
+spans is ev.spans
+check of ["one match + two group spans", len of spans, 3]
+s0 is spans[0]
+check of ["match span kind", s0.kind, "match"]
+check of ["match span start", s0.start, 0]
+check of ["match span end", s0.end, 4]
+s1 is spans[1]
+check of ["group 1 span start", s1.start, 0]
+check of ["group 1 span end", s1.end, 2]
+s2 is spans[2]
+check of ["group 2 is the b", s2.start, 2]
+
+# ---- non-participating group produces no span ----
+ev is tester_core.tester_eval of ["(a)|(b)", "a"]
+spans is ev.spans
+check of ["only participating group spans", len of spans, 2]
+
+# ---- bad pattern: ok=0, everything empty, nothing thrown ----
+ev is tester_core.tester_eval of ["(unclosed", "abc"]
+check of ["bad pattern ok flag", ev.ok, 0]
+check of ["bad pattern no matches", len of (ev.matches), 0]
+check of ["bad pattern no spans", len of (ev.spans), 0]
+
+# ---- trace present and summarizable ----
+ev is tester_core.tester_eval of ["b", "ab"]
+check of ["trace steps present", len of (ev.trace), 3]
+st is (ev.trace)[0]
+sm is tester_core.tester_step_summary of st
+check of ["step 0 one death", sm.died, 1]
+st is (ev.trace)[2]
+sm is tester_core.tester_step_summary of st
+check of ["step 2 one match", sm.matched, 1]
+
+print of ""
+if failures == 0:
+    print of "S11 tester_core: all checks passed"
+else:
+    print of f"S11 tester_core: {failures} FAILURES"
