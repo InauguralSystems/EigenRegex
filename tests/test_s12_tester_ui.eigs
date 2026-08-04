@@ -1,0 +1,146 @@
+# S12: tester UI driven headlessly through ui.dispatch (the upstream
+# tests/test_ui.eigs pattern — gfx stubbed, real event dicts). The
+# binding oracle: what the widgets SHOW must equal what tester_core
+# computes — asserted against an independent tester_eval call.
+
+# ---- gfx stubs (headless; ticks must ADVANCE for double-click logic) ----
+_ticks is {"v": 0}
+
+define gfx_open(args) as:
+    return 1
+
+define gfx_close(args) as:
+    return null
+
+define gfx_clear(args) as:
+    return null
+
+define gfx_rect(args) as:
+    return null
+
+define gfx_rrect(args) as:
+    return null
+
+define gfx_line(args) as:
+    return null
+
+define gfx_point(args) as:
+    return null
+
+define gfx_circle(args) as:
+    return null
+
+define gfx_text(args) as:
+    return null
+
+define gfx_clip(args) as:
+    return null
+
+define gfx_present(args) as:
+    return null
+
+define gfx_poll(args) as:
+    return null
+
+define gfx_delay(args) as:
+    return null
+
+define gfx_ticks(args) as:
+    _ticks.v is _ticks.v + 1000
+    return _ticks.v
+
+define gfx_text_width(text, scale) as:
+    return (len of text) * 6 * scale
+
+define gfx_text_height(scale) as:
+    return 7 * scale
+
+load_file of "lib/ui.eigs"
+load_file of "tester.eigs"
+
+failures is 0
+
+define check(label, got, want) as:
+    if got == want:
+        print of (label + " OK")
+    else:
+        print of (label + " FAIL")
+        print of "  got:"
+        print of got
+        print of "  want:"
+        print of want
+        failures is failures + 1
+    return 0
+
+build_ui of null
+refresh of null
+_layout of [T.root, 0, 0]
+
+# ---- initial state: pattern "(a+)(b?)c" over "aabc abc axc" ----
+sl is T.status_lb
+check of ["status shows the match count", sl.text, "2 match(es)"]
+
+# ---- binding oracle: hl_view spans == tester_core spans, elementwise ----
+want_ev is tester_core.tester_eval of ["(a+)(b?)c", "aabc abc axc"]
+want_spans is want_ev.spans
+hv is T.hl_view
+got_spans is hv.spans
+same is 1
+if (len of got_spans) != (len of want_spans):
+    same is 0
+else:
+    for i in range of (len of want_spans):
+        ws is want_spans[i]
+        gs is got_spans[i]
+        if gs.start != ws.start:
+            same is 0
+        if gs.end != ws.end:
+            same is 0
+check of ["hl_view spans mirror the engine spans", same, 1]
+check of ["hl_view shows the test text", hv.text, "aabc abc axc"]
+
+# ---- step view starts at step 1 and highlights active pcs ----
+stl is T.step_lb
+got_prefix is substr of [stl.text, 0, 7]
+check of ["step label starts at step 1", got_prefix, "step 1/"]
+pv is T.prog_view
+pvs is pv.spans
+got_nonempty is 0
+if (len of pvs) > 0:
+    got_nonempty is 1
+check of ["program view highlights active threads", got_nonempty, 1]
+
+# ---- clicking > advances the step ----
+dispatch of [T.root, {"type": "mousedown", "button": 1, "x": 60, "y": 250}]
+dispatch of [T.root, {"type": "mouseup", "button": 1, "x": 60, "y": 250}]
+got_prefix is substr of [stl.text, 0, 7]
+check of ["next button advances to step 2", got_prefix, "step 2/"]
+
+# ---- clicking < steps back ----
+dispatch of [T.root, {"type": "mousedown", "button": 1, "x": 16, "y": 250}]
+dispatch of [T.root, {"type": "mouseup", "button": 1, "x": 16, "y": 250}]
+got_prefix is substr of [stl.text, 0, 7]
+check of ["prev button returns to step 1", got_prefix, "step 1/"]
+
+# ---- typing in the pattern re-evaluates live ----
+# Click to focus, jump to end, append "x": "(a+)(b?)cx" matches nothing.
+dispatch of [T.root, {"type": "mousedown", "button": 1, "x": 110, "y": 50}]
+dispatch of [T.root, {"type": "mouseup", "button": 1, "x": 110, "y": 50}]
+dispatch of [T.root, {"type": "keydown", "key": "end"}]
+dispatch of [T.root, {"type": "keydown", "key": "x"}]
+pi is T.pattern_in
+check of ["keystroke reached the pattern input", pi.text, "(a+)(b?)cx"]
+check of ["live re-eval on keystroke", sl.text, "0 match(es)"]
+check of ["no matches -> no spans", len of (hv.spans), 0]
+
+# ---- bad pattern surfaces, does not throw ----
+pi.text is "(unclosed"
+refresh of null
+check of ["bad pattern status", sl.text, "pattern error"]
+check of ["bad pattern clears step label", stl.text, "-"]
+
+print of ""
+if failures == 0:
+    print of "S12 tester UI: all checks passed"
+else:
+    print of f"S12 tester UI: {failures} FAILURES"

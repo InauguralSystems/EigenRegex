@@ -1,0 +1,182 @@
+# tester — live regex tester UI (#18, fleet UI ladder rung 2).
+# Run: eigenscript tester_main.eigs   (needs the gfx build of the runtime)
+#
+# Pattern + test text re-evaluate on every keystroke through
+# tester_core.tester_eval — the SAME engine calls the headless suite
+# oracles, so the display can never fork match semantics. The step view
+# walks re_trace's per-character thread ledger (Pike-VM execution made
+# visible: advance/die/match/cut).
+#
+# Highlighting uses code_view's `spans` field (EigenScript#838). On a
+# pre-#838 runtime the field is an inert unused key: the app runs, the
+# text shows, only the colors are absent — the auto_size-style rollout
+# decoupling. All state the UI shows lives ON the widgets (or in T), so
+# the headless test (test_s12) drives dispatch and asserts fields.
+#
+# Conventions: this file is LOAD_FILE'd (the DeslanStudio client-view
+# pattern), lib/ui.eigs must be loaded first (stubs first when
+# headless), and all mutable state lives in the T dict — field writes
+# cross the module boundary; bare rebinds from module functions do not
+# (EigenScript#373). `run` is defined but never called at load time
+# (the eigen-edit convention); tester_main.eigs is the entry point.
+
+import regex
+import tester_core
+
+TESTER_W is 900
+TESTER_H is 640
+
+# span colors (explicit per-span; theme layer arrives with the shell pass)
+MATCH_BG is [40, 90, 60]
+GROUP_BG is [90, 70, 30]
+PC_BG is [50, 70, 110]
+
+# ---- all mutable tester state (the _ui pattern) ----
+T is {
+    "eval": null,
+    "step": 0,
+    "root": null,
+    "pattern_in": null,
+    "text_in": null,
+    "status_lb": null,
+    "hl_view": null,
+    "prog_view": null,
+    "step_lb": null,
+    "threads_view": null
+}
+
+# ---- program listing: compiled code -> text + per-pc line offsets ----
+define prog_listing(prog) as:
+    local ptext is ""
+    local offs is []
+    local code is prog["code"]
+    for i in range of (len of code):
+        append of [offs, len of ptext]
+        local inst is code[i]
+        local line is f"{i}: {inst[0]}"
+        if inst[0] == "char":
+            line is line + f" '{inst[1]}'"
+        if inst[0] == "split":
+            line is line + f" -> {inst[1]}, {inst[2]}"
+        if inst[0] == "jmp":
+            line is line + f" -> {inst[1]}"
+        if inst[0] == "save":
+            line is line + f" slot {inst[1]}"
+        ptext is ptext + line + "\n"
+    append of [offs, len of ptext]
+    return {"text": ptext, "offs": offs}
+
+# ---- step view ----
+define show_step(n) as:
+    if T.eval == null:
+        return null
+    local ev is T.eval
+    local steps is ev.trace
+    if ev.ok == 0 or (len of steps) == 0:
+        T.step_lb.text is "-"
+        T.threads_view.text is ""
+        T.prog_view.spans is []
+        return null
+    local st is steps[T.step]
+    local sm is tester_core.tester_step_summary of st
+    local ch is st.char
+    if ch == "":
+        ch is "(end)"
+    local ns is len of steps
+    local si is T.step + 1
+    T.step_lb.text is f"step {si}/{ns}  sp={st.sp}  char {ch}  alive {sm.alive} died {sm.died} matched {sm.matched} cut {sm.cut}"
+    local ttext is ""
+    local ths is st.threads
+    local prog is regex.re_compile of (T.pattern_in.text)
+    local pl is prog_listing of prog
+    local pspans is []
+    for i in range of (len of ths):
+        local th is ths[i]
+        ttext is ttext + f"pc {th.pc}  {th.op}  from {th.mstart}  {th.outcome}\n"
+        local o0 is (pl.offs)[th.pc]
+        local o1 is (pl.offs)[th.pc + 1]
+        append of [pspans, {"start": o0, "end": o1 - 1, "bg": PC_BG, "fg": null}]
+    T.threads_view.text is ttext
+    T.prog_view.text is pl.text
+    T.prog_view.spans is pspans
+    return null
+
+# ---- re-evaluate on any input change ----
+define refresh(n) as:
+    local p is T.pattern_in.text
+    local t is T.text_in.text
+    T.eval is tester_core.tester_eval of [p, t]
+    local ev is T.eval
+    T.hl_view.text is t
+    local vspans is []
+    local sp is ev.spans
+    for i in range of (len of sp):
+        local s is sp[i]
+        local bg is MATCH_BG
+        if s.kind == "group":
+            bg is GROUP_BG
+        append of [vspans, {"start": s.start, "end": s.end, "bg": bg, "fg": null}]
+    T.hl_view.spans is vspans
+    if ev.ok == 0:
+        T.status_lb.text is "pattern error"
+    else:
+        local nm is len of (ev.matches)
+        T.status_lb.text is f"{nm} match(es)"
+    local nsteps is len of (ev.trace)
+    if T.step >= nsteps:
+        T.step is 0
+    show_step of null
+    return null
+
+define step_prev(b) as:
+    if T.step > 0:
+        T.step is T.step - 1
+    show_step of null
+    return null
+
+define step_next(b) as:
+    if T.eval != null:
+        local ev is T.eval
+        local nsteps is len of (ev.trace)
+        if T.step + 1 < nsteps:
+            T.step is T.step + 1
+    show_step of null
+    return null
+
+# ---- build the tree (callable headless; run() adds the window loop) ----
+define build_ui(n) as:
+    T.root is panel of ["root", 0, 0, TESTER_W, TESTER_H]
+    local title is label of ["title", 12, 10, "EigenRegex live tester"]
+    add_child of [T.root, title]
+    local plb is label of ["plb", 12, 44, "pattern"]
+    add_child of [T.root, plb]
+    T.pattern_in is text_input of ["pattern", 100, 40, 640, "(a+)(b?)c", refresh]
+    add_child of [T.root, T.pattern_in]
+    local tlb is label of ["tlb", 12, 76, "text"]
+    add_child of [T.root, tlb]
+    T.text_in is text_input of ["text", 100, 72, 640, "aabc abc axc", refresh]
+    add_child of [T.root, T.text_in]
+    T.status_lb is label of ["status", 760, 44, ""]
+    add_child of [T.root, T.status_lb]
+    T.hl_view is code_view of ["hl", 12, 108, TESTER_W - 24, 120, ""]
+    T.hl_view.line_numbers is 0
+    add_child of [T.root, T.hl_view]
+    local prev_b is button of ["prev", 12, 240, 40, 24, "<", step_prev]
+    add_child of [T.root, prev_b]
+    local next_b is button of ["next", 56, 240, 40, 24, ">", step_next]
+    add_child of [T.root, next_b]
+    T.step_lb is label of ["steplb", 108, 244, ""]
+    add_child of [T.root, T.step_lb]
+    T.threads_view is code_view of ["threads", 12, 276, 430, 340, ""]
+    T.threads_view.line_numbers is 0
+    add_child of [T.root, T.threads_view]
+    T.prog_view is code_view of ["prog", 454, 276, TESTER_W - 466, 340, ""]
+    add_child of [T.root, T.prog_view]
+    return null
+
+define run(n) as:
+    build_ui of null
+    refresh of null
+    gfx_open of [TESTER_W, TESTER_H, "EigenRegex tester"]
+    app_loop of [T.root, null, null]
+    return null

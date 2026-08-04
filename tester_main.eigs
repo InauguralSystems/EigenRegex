@@ -1,0 +1,7 @@
+# Entry point for the live tester (#18): load the toolkit, then the app,
+# then hand off to run. Type in pattern/text to re-evaluate live; the
+# </> buttons walk the Pike-VM steps; Escape or the close box quits.
+load_file of "lib/ui.eigs"
+load_file of "tester.eigs"
+
+run of null
