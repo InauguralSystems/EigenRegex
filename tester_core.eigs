@@ -1,0 +1,73 @@
+# tester_core — pure model for the live regex tester (#18). No gfx: the
+# UI front-end (tester.eigs) renders what this returns, and the oracle
+# gate diffs these results against the engine directly. Keeping the core
+# gfx-free is the fleet standard (EigenOS consumes app cores unmodified).
+
+import regex
+
+# ---- tester_eval: one keystroke's worth of work ----
+# args = [pattern, text]. Returns a dict:
+#   ok       1 when the pattern compiled, else 0
+#   matches  re_find_all caps lists (byte-identical to the engine's)
+#   spans    highlight spans [{start, end, kind, group}] derived ONLY
+#            from `matches` — kind "match" (group 0) or "group"
+#   trace    re_trace steps for the first-match window (the step view)
+#   result   re_trace's result caps (null when no match)
+define tester_eval(args) as:
+    local pattern is args[0]
+    local text is args[1]
+    local out is {}
+    local prog is regex.re_compile of pattern
+    if prog == null:
+        out["ok"] is 0
+        out["matches"] is []
+        out["spans"] is []
+        out["trace"] is []
+        out["result"] is null
+        return out
+    out["ok"] is 1
+    local matches is regex.re_find_all of [prog, text]
+    out["matches"] is matches
+    out["spans"] is tester_spans of matches
+    local tr is regex.re_trace of [prog, text]
+    out["trace"] is tr.steps
+    out["result"] is tr.result
+    return out
+
+# ---- tester_spans: caps lists -> highlight spans ----
+# Group spans come after their match span so a renderer painting in
+# order draws group color over match color inside the group range.
+define tester_spans(matches) as:
+    local spans is []
+    for mi in range of (len of matches):
+        local caps is matches[mi]
+        append of [spans, {"start": caps[0], "end": caps[1], "kind": "match", "group": 0}]
+        local g is 1
+        local ng is floor of ((len of caps) / 2)
+        loop while g < ng:
+            local gs is caps[g * 2]
+            local ge is caps[g * 2 + 1]
+            if gs >= 0:
+                append of [spans, {"start": gs, "end": ge, "kind": "group", "group": g}]
+            g is g + 1
+    return spans
+
+# ---- tester_step_summary: one trace step -> counts for the step view ----
+# {"alive", "died", "matched", "cut"} — the per-character thread ledger.
+define tester_step_summary(step) as:
+    local alive is 0
+    local died is 0
+    local matched is 0
+    local cut is 0
+    local ths is step.threads
+    for i in range of (len of ths):
+        local th is ths[i]
+        if th.outcome == "advance":
+            alive is alive + 1
+        if th.outcome == "die":
+            died is died + 1
+        if th.outcome == "match":
+            matched is matched + 1
+        if th.outcome == "cut":
+            cut is cut + 1
+    return {"alive": alive, "died": died, "matched": matched, "cut": cut}

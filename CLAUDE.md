@@ -79,8 +79,9 @@ resolves to the root `regex.eigs`. `tests/test_pkg_smoke.sh` additionally
 stages the package into `eigs_modules/regex/` and imports it the way a
 real consumer (`--pkg add`) would.
 
-359 test checks across S1–S9 plus the package smoke, all green (S9 = the
-import-isolation guard, formerly the #5 caller-globals scope suite).
+412 test checks across S1–S12 plus the package smoke, all green (S9 = the
+import-isolation guard, formerly the #5 caller-globals scope suite; S10 =
+re_trace, S11 = tester_core oracle, S12 = the tester UI driven headlessly).
 (`tests/bench_search.eigs` is a manual timing bench, not part of the gate.)
 
 ## Layout
@@ -96,6 +97,11 @@ import-isolation guard, formerly the #5 caller-globals scope suite).
   classes → anchors/groups → escapes/POSIX → intervals → compat/differential
   → import-isolation); `tests/bench_search.eigs` is a manual bench, not a gate.
 - `GAPS.md` — upstream-gap ledger (fixed/open status per entry).
+- `tester_core.eigs` / `tester.eigs` / `tester_main.eigs` — the live
+  tester (#18): pure model, gfx UI (load_file'd, state in the `T` dict),
+  and the entry point (`eigenscript tester_main.eigs`, gfx build).
+  The step view rides `regex.re_trace`; highlights ride code_view
+  `spans` (EigenScript#838 — inert until the pin carries it).
 
 ## Architecture notes
 
