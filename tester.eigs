@@ -7,11 +7,11 @@
 # walks re_trace's per-character thread ledger (Pike-VM execution made
 # visible: advance/die/match/cut).
 #
-# Highlighting uses code_view's `spans` field (EigenScript#838). On a
-# pre-#838 runtime the field is an inert unused key: the app runs, the
-# text shows, only the colors are absent — the auto_size-style rollout
-# decoupling. All state the UI shows lives ON the widgets (or in T), so
-# the headless test (test_s12) drives dispatch and asserts fields.
+# Highlighting uses code_view's `spans` field (EigenScript#838, in the
+# pinned runtime since v0.36.0; on an older runtime the field is an
+# inert unused key — the app still runs, only the colors are absent).
+# All state the UI shows lives ON the widgets (or in T), so the
+# headless test (test_s12) drives dispatch and asserts fields.
 #
 # Conventions: this file is LOAD_FILE'd (the DeslanStudio client-view
 # pattern), lib/ui.eigs must be loaded first (stubs first when

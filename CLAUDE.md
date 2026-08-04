@@ -51,9 +51,9 @@ EigenScript is **not** vendored. Pin v0.11.5 minimum (string
 `<`/`<=` comparison, `ord of s`, and the `INDEX_GET`
 use-after-free fix all first shipped in v0.11.5 — see GAPS.md
 for the fix history). CI pins the runtime via
-`.devcontainer/Dockerfile`'s `EIGS_REF` (currently **v0.35.2**) and
+`.devcontainer/Dockerfile`'s `EIGS_REF` (currently **v0.36.0**) and
 builds it from source — bump that to move the tested runtime. (The
-`import`-based package model needs a runtime with `import`; v0.35.2 has
+`import`-based package model needs a runtime with `import`; v0.36.0 has
 it.)
 
 ## Run / test
@@ -101,7 +101,7 @@ re_trace, S11 = tester_core oracle, S12 = the tester UI driven headlessly).
   tester (#18): pure model, gfx UI (load_file'd, state in the `T` dict),
   and the entry point (`eigenscript tester_main.eigs`, gfx build).
   The step view rides `regex.re_trace`; highlights ride code_view
-  `spans` (EigenScript#838 — inert until the pin carries it).
+  `spans` (EigenScript#838, carried by the pin since v0.36.0).
 
 ## Architecture notes
 
