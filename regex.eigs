@@ -815,6 +815,14 @@ define _build_result(start, end, saves) as:
 # pc-dedup, so the first MATCH in priority order is the leftmost-longest one —
 # byte-identical to the loop version, but O(n*|prog|), restoring the Pike-VM
 # linear-time guarantee.
+# ---- step-trace sink (#18 live tester) ----
+# Off unless re_trace is running. Cross-function shared state as a dict
+# (the stdlib _ui pattern); _search appends one step record per input
+# position while armed. Keeping the sink inside _search itself — rather
+# than a parallel traced runner — is what guarantees the trace can never
+# fork match semantics (the tester's oracle requirement).
+_rx_trace is {"on": 0, "steps": null}
+
 define _search(prog, text, start, n_slots) as:
     local n is len of text
     local plen is len of prog
@@ -837,6 +845,12 @@ define _search(prog, text, start, n_slots) as:
                 append of [init_saves, -1]
                 s is s + 1
             _addthread of [clist, cseen, 0, init_saves, sp, n, prog, sp]
+        local tstep is null
+        if _rx_trace.on == 1:
+            tstep is {"sp": sp, "char": "", "threads": []}
+            if sp < n:
+                tstep.char is char_at of [text, sp]
+            append of [_rx_trace.steps, tstep]
         local i is 0
         loop while i < (len of clist):
             local t is clist[i]
@@ -851,17 +865,27 @@ define _search(prog, text, start, n_slots) as:
                 m_end is sp
                 m_saves is saves
                 # Kill remaining (lower-priority) threads in clist this step.
+                if tstep != null:
+                    append of [tstep.threads, {"pc": pc, "op": op, "mstart": mstart, "outcome": "match"}]
+                    local j is i + 1
+                    loop while j < (len of clist):
+                        local ct is clist[j]
+                        append of [tstep.threads, {"pc": ct[0], "op": (prog[ct[0]])[0], "mstart": ct[2], "outcome": "cut"}]
+                        j is j + 1
                 break
+            local outc is "die"
             if op == "char":
                 if sp < n:
                     local c is char_at of [text, sp]
                     if c == inst[1]:
                         _addthread of [nlist, nseen, pc + 1, saves, sp + 1, n, prog, mstart]
+                        outc is "advance"
             if op == "any":
                 if sp < n:
                     local c is char_at of [text, sp]
                     if c != "\n":
                         _addthread of [nlist, nseen, pc + 1, saves, sp + 1, n, prog, mstart]
+                        outc is "advance"
             if op == "class":
                 if sp < n:
                     local c is char_at of [text, sp]
@@ -884,6 +908,9 @@ define _search(prog, text, start, n_slots) as:
                             take is 1
                     if take == 1:
                         _addthread of [nlist, nseen, pc + 1, saves, sp + 1, n, prog, mstart]
+                        outc is "advance"
+            if tstep != null:
+                append of [tstep.threads, {"pc": pc, "op": op, "mstart": mstart, "outcome": outc}]
             i is i + 1
         clist is nlist
         cseen is nseen
@@ -948,6 +975,29 @@ define re_search(args) as:
     if prog == null:
         return null
     return _rx_vm_run of [prog, text, 0, 0]
+
+# ---- re_trace: instrumented leftmost search for the live tester (#18) ----
+# args = [prog, text]. Arms the step sink and runs the SAME _search that
+# re_search runs — the trace can therefore never disagree with the real
+# match. Returns {"steps": [...], "result": <re_search-shaped caps/null>}.
+# Each step: {"sp", "char", "threads": [{"pc","op","mstart","outcome"}]}
+# with outcome one of "advance" (survived into the next step), "die" (no
+# transition on this char), "match" (locked the match), "cut" (killed by
+# a higher-priority match this step).
+define re_trace(args) as:
+    local prog is args[0]
+    local text is args[1]
+    if prog == null:
+        return null
+    _rx_trace.on is 1
+    _rx_trace.steps is []
+    local r is _rx_vm_run of [prog, text, 0, 0]
+    _rx_trace.on is 0
+    local out is {}
+    out["steps"] is _rx_trace.steps
+    out["result"] is r
+    _rx_trace.steps is null
+    return out
 
 # ---- re_replace: replace every non-overlapping match with a literal string ----
 # args = [prog, text, replacement]. The replacement is inserted literally

@@ -1,0 +1,112 @@
+# S10: re_trace — the instrumented step-through run for the live tester (#18).
+# The load-bearing invariant: trace result is IDENTICAL to re_search for the
+# same (pattern, text), because re_trace runs the same _search with a sink
+# armed — the step view must never fork match semantics.
+
+import regex
+
+failures is 0
+
+define check(label, got, want) as:
+    if got == want:
+        print of (label + " OK")
+    else:
+        print of (label + " FAIL")
+        print of "  got:"
+        print of got
+        print of "  want:"
+        print of want
+        failures is failures + 1
+    return 0
+
+# Flat caps lists (or null) compared elementwise.
+define caps_eq(a, b) as:
+    if a == null:
+        if b == null:
+            return 1
+        return 0
+    if b == null:
+        return 0
+    local n is len of a
+    if n != (len of b):
+        return 0
+    local i is 0
+    loop while i < n:
+        if a[i] != b[i]:
+            return 0
+        i is i + 1
+    return 1
+
+# ---- oracle invariant: trace.result == re_search across pattern shapes ----
+patterns is ["b", "a|ab", "(a+)(b?)c", "x", "^ab$", "[a-c]+", "colou?r"]
+texts is ["ab", "ab", "aabc", "ab", "ab", "zabcz", "my color!"]
+for i in range of (len of patterns):
+    p is regex.re_compile of (patterns[i])
+    t is texts[i]
+    tr is regex.re_trace of [p, t]
+    s is regex.re_search of [p, t]
+    r is tr.result
+    check of [f"trace/search agree for '{patterns[i]}'", caps_eq of [r, s], 1]
+
+# ---- step structure: pattern "b" over "ab" ----
+prog is regex.re_compile of "b"
+tr is regex.re_trace of [prog, "ab"]
+steps is tr.steps
+check of ["one step per input position", len of steps, 3]
+s0 is steps[0]
+check of ["step 0 is position 0", s0.sp, 0]
+check of ["step 0 sees char 'a'", s0.char, "a"]
+th0 is s0.threads
+check of ["step 0 has one thread", len of th0, 1]
+t00 is th0[0]
+check of ["thread at a char op", t00.op, "char"]
+check of ["'b' vs 'a' dies", t00.outcome, "die"]
+s1 is steps[1]
+th1 is s1.threads
+t10 is th1[0]
+check of ["'b' vs 'b' advances", t10.outcome, "advance"]
+s2 is steps[2]
+th2 is s2.threads
+t20 is th2[0]
+check of ["advanced thread matches at position 2", t20.outcome, "match"]
+
+# ---- priority cut: "a|ab" on "ab" locks 'a' and cuts the 'ab' thread ----
+prog is regex.re_compile of "a|ab"
+tr is regex.re_trace of [prog, "ab"]
+steps is tr.steps
+cut_seen is 0
+match_seen is 0
+for i in range of (len of steps):
+    st is steps[i]
+    ths is st.threads
+    for j in range of (len of ths):
+        th is ths[j]
+        if th.outcome == "cut":
+            cut_seen is 1
+        if th.outcome == "match":
+            match_seen is 1
+check of ["higher-priority match recorded", match_seen, 1]
+check of ["lower-priority thread cut", cut_seen, 1]
+r is tr.result
+check of ["leftmost-first result is 'a'", r[1], 1]
+
+# ---- no-match trace walks the whole text ----
+prog is regex.re_compile of "zz"
+tr is regex.re_trace of [prog, "abc"]
+check of ["no-match result is null", tr.result, null]
+check of ["no-match trace has n+1 steps", len of (tr.steps), 4]
+
+# ---- the sink disarms: a later plain search is untraced and unchanged ----
+prog is regex.re_compile of "b+"
+r is regex.re_search of [prog, "abbc"]
+check of ["post-trace re_search start", r[0], 1]
+check of ["post-trace re_search end", r[1], 3]
+
+# ---- null program ----
+check of ["null prog traces to null", regex.re_trace of [null, "x"], null]
+
+print of ""
+if failures == 0:
+    print of "S10 trace: all checks passed"
+else:
+    print of f"S10 trace: {failures} FAILURES"
