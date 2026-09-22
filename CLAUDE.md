@@ -51,10 +51,9 @@ EigenScript is **not** vendored. Pin v0.11.5 minimum (string
 `<`/`<=` comparison, `ord of s`, and the `INDEX_GET`
 use-after-free fix all first shipped in v0.11.5 — see GAPS.md
 for the fix history). CI pins the runtime via
-`.devcontainer/Dockerfile`'s `EIGS_REF` (currently **v0.40.0**) and
-builds it from source — bump that to move the tested runtime. (The
-`import`-based package model needs a runtime with `import`; v0.40.0 has
-it.)
+`.devcontainer/Dockerfile`'s `EIGS_REF` and builds it from source — bump
+that to move the tested runtime. (The `import`-based package model needs a
+runtime with `import`.)
 
 ## Run / test
 
@@ -79,23 +78,23 @@ resolves to the root `regex.eigs`. `tests/test_pkg_smoke.sh` additionally
 stages the package into `eigs_modules/regex/` and imports it the way a
 real consumer (`--pkg add`) would.
 
-412 test checks across S1–S12 plus the package smoke, all green (S9 = the
-import-isolation guard, formerly the #5 caller-globals scope suite; S10 =
-re_trace, S11 = tester_core oracle, S12 = the tester UI driven headlessly).
+Stages S1–S12 plus the package smoke (S9 = the import-isolation guard,
+S10 = re_trace, S11 = tester_core oracle, S12 = the tester UI driven
+headlessly).
 (`tests/bench_search.eigs` is a manual timing bench, not part of the gate.)
 
 ## Layout
 
 - **`regex.eigs` is the whole package in one importable file** (parse → compile
   → Pike-VM executor → public API). Public members namespace under `regex.*`;
-  `_`-prefixed names (`_rx_parse`, `_peek`, …) are private. It was assembled
-  from the former `lib/` split — **edit `regex.eigs` directly, the split is
-  gone.**
+  `_`-prefixed names (`_rx_parse`, `_peek`, …) are private. **Edit
+  `regex.eigs` directly.**
 - `eigs.json` is the package manifest (`name: regex`) — what makes
   `import regex` resolve this repo.
-- `tests/test_s{1..9}_*.eigs` are per-stage (literals → alt → repeat →
+- `tests/test_s{1..12}_*.eigs` are per-stage (literals → alt → repeat →
   classes → anchors/groups → escapes/POSIX → intervals → compat/differential
-  → import-isolation); `tests/bench_search.eigs` is a manual bench, not a gate.
+  → import-isolation → trace → tester core → tester UI); `tests/bench_search.eigs`
+  is a manual bench, not a gate.
 - `GAPS.md` — upstream-gap ledger (fixed/open status per entry).
 - `tester_core.eigs` / `tester.eigs` / `tester_main.eigs` — the live
   tester (#18): pure model, gfx UI (load_file'd, state in the `T` dict),
@@ -152,35 +151,28 @@ builtin-shaped compat layer.
 
 ## Current state
 
-**Packaged for `import` (issue #13, 2026-07-24).** The former five-file
-`lib/` split is folded into one importable root `regex.eigs` + `eigs.json`
+**Packaged for `import`:** one importable root `regex.eigs` + `eigs.json`
 (name `regex`). Consumers `import regex` and reach `regex.re_*` /
-`regex.compat_*`; every internal is `_`-private, so the whole
-caller-globals collision class (issue #5, and eigen-sheet's `_peek` clash
-in #13) is structurally gone — not just mitigated by `local`. `S9`
-flipped from the load_file scope suite to the import-isolation guard.
-Edit `regex.eigs` directly; the `lib/` split no longer exists.
+`regex.compat_*`; every internal is `_`-private, so caller-globals
+collisions (issue #5, eigen-sheet's `_peek` clash in #13) are structurally
+impossible — not just mitigated by `local`. S9 is the import-isolation
+guard.
 
-**S8 complete (ERE parity, 2026-07-01).** All checks across S1–S9
-green. S6 added escapes + POSIX classes, S7 added `{n,m}` intervals
-(desugared in the parser — no new VM ops; shared-subtree repetition
-gives glibc's last-repetition-wins capture semantics), S8 added
-`re_replace` + the builtin-shaped compat layer and a differential suite that
-runs shim-vs-builtin over shared inputs with the libc builtins as the
-oracle. Built for EigenScript's freestanding profile (EigenOS): the
-compat layer is the planned regex story when libc's regcomp is gone.
-Still open: fold into corpus for retraining — feeding the engine's own
-source + tests into the iLambdaAi self-training pipeline.
+**ERE parity:** escapes + POSIX classes (S6); `{n,m}` intervals desugared
+in the parser with no new VM ops — shared-subtree repetition gives glibc's
+last-repetition-wins capture semantics (S7); `re_replace` + the
+builtin-shaped compat layer, with a shim-vs-builtin differential suite that
+uses the libc builtins as the oracle (S8). The compat layer is the regex
+story for EigenScript's freestanding profile (EigenOS), where libc's
+regcomp is gone. Still open: feeding the engine's own source + tests into
+the iLambdaAi self-training corpus.
 
-**Search is now genuinely O(n·m).** `re_search` used to loop over every
-start position and re-run the VM from each — O(n²), which silently
-violated the library's whole linear-time promise (`a*b` over `"aaaa…"`:
-~4× per doubling, n=1600 took ~79 s). Replaced with a single linear
-pass that seeds a lowest-priority start thread at `pc=0` each step (the
-implicit `.*?` prefix), preserving leftmost-match priority. Now ~2× per
-doubling; n=1600 ≈ 106 ms (~745× faster), all 220 checks unchanged.
-`tests/bench_search.eigs` documents the scaling (timings are
-machine-dependent, so it's a manual bench, not a pass/fail gate).
+**Search is a single linear pass:** each step seeds a lowest-priority start
+thread at `pc=0` (the implicit `.*?` prefix), preserving leftmost-match
+priority. Never re-run the VM from each start position — that is O(n²) and
+silently breaks the linear-time promise (`a*b` over `"aaaa…"` at n=1600:
+~79 s against ~106 ms). `tests/bench_search.eigs` documents the scaling
+(machine-dependent, so a manual bench, not a gate).
 
 ## Gotchas
 
@@ -208,13 +200,14 @@ silently. Add to that: ask whether the thing you hit is a **law** of the
 language or an **earlier decision**. The tell is writing, or thinking,
 *"X must be true because the runtime does Y."*
 
-Bought 2026-08-28 (ouroboros#127 / DMG). The AOT compiles a program's main
-file but emits `load_file` as a runtime call, so loaded modules are
-interpreted by the linked VM. A real bug in that seam was found, minimised,
+Bought 2026-08-28 (ouroboros#127 / DMG). The AOT then compiled a program's
+main file but emitted `load_file` as a runtime call, so loaded modules were
+interpreted by the linked VM (since fixed, ouroboros#129 — the reasoning is
+the lesson, not the state). A real bug in that seam was found, minimised,
 fixed and verified — and reported as "unlocking the AOT multiplier for
 DMG". Measured on being challenged: DMG is 3,288 lines, 818 compiled and
 2,470 interpreted, including the 128-function opcode dispatch. Every
-emulated instruction runs interpreted, so the fix makes it *run* and cannot
+emulated instruction ran interpreted, so the fix made it *run* and could not
 make it *faster*. A whole investigation cycle had treated that design as
 terrain, and the capability to do it the other way already existed upstream
 for another purpose.
