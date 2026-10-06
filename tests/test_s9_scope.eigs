@@ -27,7 +27,7 @@ m is regex.re_search of [prog, "  abcxy  "]
 fa is regex.re_find_all of [prog, "abc xyz"]
 
 define check(label, ok) as:
-    if ok == 1:
+    if ok:
         print of f"{label} OK"
     else:
         print of f"{label} FAIL"
