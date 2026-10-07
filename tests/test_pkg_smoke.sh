@@ -68,8 +68,8 @@ check "compat_find shape"     '["compat_find", ["a1", "b2"]]'
 check "public surface"        '["surface_ok", 1]'
 check "_peek stays private"   '["_peek_private", 1]'
 check "_rx_parse private"     '["_rx_parse_private", 1]'
-check "caller pos intact"     '["pos_intact", 1]'
-check "caller _peek intact"   '["consumer_peek_intact", 1]'
+check "caller pos intact"     '["pos_intact", true]'
+check "caller _peek intact"   '["consumer_peek_intact", true]'
 
 if [ "$fail" -eq 0 ]; then
     echo "PASS: package smoke — import regex composes with zero global collisions"
