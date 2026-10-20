@@ -1,0 +1,5 @@
+import regex
+if (regex.re_search of [regex.re_compile of "(?i)[k]", "K"]) == [0,3]:
+    print of "cold icase class OK"
+else:
+    print of "cold icase class FAIL"

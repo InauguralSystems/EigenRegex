@@ -163,6 +163,58 @@ define _posix_ranges(name) as:
     # Unknown class name — parse error (glibc regcomp errors here too).
     return null
 
+_unicode_lowering_loaded is 0
+
+# The one class lowering path.  Its input is scalar ranges; it normalizes the
+# set, applies RE2 simple-fold closure, complements over Unicode scalars (never
+# surrogate code points), and only then turns the result into UTF-8 byte paths.
+define _lower_scalar_class(ranges, neg, icase) as:
+    if _unicode_lowering_loaded == 0:
+        load_file of "unicode_property.eigs"
+        _unicode_lowering_loaded is 1
+    ranges is _normalize_scalar_ranges of ranges
+    if icase == 1:
+        _ensure_case_tables of null
+        local points is {}
+        local point_lo is 1114112
+        local point_hi is -1
+        for r in ranges:
+            local cp is r[0]
+            loop while cp <= r[1]:
+                points[str of cp] is 1
+                if cp < point_lo:
+                    point_lo is cp
+                if cp > point_hi:
+                    point_hi is cp
+                for table in _case_scalar_tables:
+                    if has_key of [table, str of cp]:
+                        for variant in table[str of cp]:
+                            points[str of variant] is 1
+                            if variant < point_lo:
+                                point_lo is variant
+                            if variant > point_hi:
+                                point_hi is variant
+                cp is cp + 1
+        local folded is []
+        local run_lo is -1
+        local previous is -2
+        local ncp is point_lo
+        loop while ncp <= point_hi:
+            if has_key of [points, str of ncp]:
+                if run_lo < 0:
+                    run_lo is ncp
+                elif ncp != previous + 1:
+                    append of [folded, [run_lo, previous]]
+                    run_lo is ncp
+                previous is ncp
+            ncp is ncp + 1
+        if run_lo >= 0:
+            append of [folded, [run_lo, previous]]
+        ranges is _normalize_scalar_ranges of folded
+    if neg == 1:
+        ranges is _unicode_complement of ranges
+    return _unicode_ast of ranges
+
 _unicode_property_asts is {}
 
 define _parse_unicode_property(st, neg) as:
@@ -180,23 +232,16 @@ define _parse_unicode_property(st, neg) as:
         # loaded only when the first property escape is actually parsed.
         load_file of "unicode_categories.eigs"
         _unicode_property_ranges is _generated_unicode_property_ranges of null
-    local ranges_name is name
-    if st["icase"] == 1:
-        ranges_name is "i:" + name
-    local key is ranges_name
+    local key is name + ":" + (str of st["icase"])
     if neg == 1:
-        key is "!" + ranges_name
+        key is "!" + key
     # M and Pc are present only for capture-name validation.  Properties other
     # than the documented public subset remain a loud exclusion until #38.
     if not (has_key of [_unicode_property_ranges, name]) or name == "M" or name == "Pc":
         _rx_error is "unknown Unicode property: " + name
         return null
     if not (has_key of [_unicode_property_asts, key]):
-        load_file of "unicode_property.eigs"
-        local ranges is _unicode_property_ranges[ranges_name]
-        if neg == 1:
-            ranges is _unicode_complement of ranges
-        _unicode_property_asts[key] is _unicode_ast of ranges
+        _unicode_property_asts[key] is _lower_scalar_class of [_unicode_property_ranges[name], neg, st["icase"]]
     return _unicode_property_asts[key]
 
 # Forward declarations via mutual recursion are fine in EigenScript
@@ -287,52 +332,7 @@ define _parse_class(st) as:
             append of [ranges, [lo, lo]]
     if (len of ranges) == 0:
         return null
-    # Classes are sets of Unicode scalars, not sets of UTF-8 bytes.  Close the
-    # positive set under RE2's simple folds before complementing it, then lower
-    # the resulting scalar ranges to complete UTF-8 paths.
-    if st["icase"] == 1:
-        _ensure_case_tables of null
-        local points is {}
-        local point_lo is 1114112
-        local point_hi is -1
-        for r in ranges:
-            local cp is r[0]
-            loop while cp <= r[1]:
-                points[str of cp] is 1
-                if cp < point_lo:
-                    point_lo is cp
-                if cp > point_hi:
-                    point_hi is cp
-                for table in _case_scalar_tables:
-                    if has_key of [table, str of cp]:
-                        for variant in table[str of cp]:
-                            points[str of variant] is 1
-                            if variant < point_lo:
-                                point_lo is variant
-                            if variant > point_hi:
-                                point_hi is variant
-                cp is cp + 1
-        local folded is []
-        local run_lo is -1
-        local previous is -2
-        local ncp is point_lo
-        loop while ncp <= point_hi:
-            if has_key of [points, str of ncp]:
-                if run_lo < 0:
-                    run_lo is ncp
-                else:
-                    if ncp != previous + 1:
-                        append of [folded, [run_lo, previous]]
-                        run_lo is ncp
-                previous is ncp
-            ncp is ncp + 1
-        if run_lo >= 0:
-            append of [folded, [run_lo, previous]]
-        ranges is folded
-    if neg == 1:
-        ranges is _unicode_complement of ranges
-    load_file of "unicode_property.eigs"
-    return _unicode_ast of ranges
+    return _lower_scalar_class of [ranges, neg, st["icase"]]
 
 # ---- _parse_atom: literal | '.' | '^' | '$' | '[' class ']' | '(' alt ')' ----
 # Group index is allocated by opening-paren order (PCRE convention). We bump
@@ -413,8 +413,7 @@ define _parse_atom(st) as:
         # Dot consumes one Unicode scalar, not one byte.  Lowering it to the
         # same complete UTF-8 paths as a scalar class also prevents a consuming
         # atom from ending in the middle of a subject scalar.
-        load_file of "unicode_property.eigs"
-        return _unicode_ast of [[0, 9], [11, 55295], [57344, 1114111]]
+        return _lower_scalar_class of [[[10, 10]], 1, 0]
     if c == "^":
         _advance of st
         return ["anchor", "start"]
@@ -433,20 +432,22 @@ define _parse_atom(st) as:
         if e == "B":
             return ["boundary", 1]
         if e == "w":
-            return ["class", 0, [[48, 57], [65, 90], [95, 95], [97, 122]], st["icase"]]
+            return _lower_scalar_class of [[[48, 57], [65, 90], [95, 95], [97, 122]], 0, st["icase"]]
         if e == "W":
-            return ["class", 1, [[48, 57], [65, 90], [95, 95], [97, 122]], st["icase"]]
+            return _lower_scalar_class of [[[48, 57], [65, 90], [95, 95], [97, 122]], 1, st["icase"]]
         if e == "s":
-            return ["class", 0, [[9, 13], [32, 32]], st["icase"]]
+            return _lower_scalar_class of [[[9, 13], [32, 32]], 0, st["icase"]]
         if e == "S":
-            return ["class", 1, [[9, 13], [32, 32]], st["icase"]]
+            return _lower_scalar_class of [[[9, 13], [32, 32]], 1, st["icase"]]
+        if e == "d":
+            return _lower_scalar_class of [[[48, 57]], 0, st["icase"]]
+        if e == "D":
+            return _lower_scalar_class of [[[48, 57]], 1, st["icase"]]
         if e == "p":
             return _parse_unicode_property of [st, 0]
         if e == "P":
             return _parse_unicode_property of [st, 1]
-        # Any other escaped char is that literal char. This matches glibc
-        # ERE, including its trap: \d is a literal 'd' there, NOT digits —
-        # verified against the builtin oracle. Use [0-9] or [[:digit:]].
+        # Any other escaped char is that literal char.
         return ["lit", ord of e, [ord of e], st["icase"]]
     if _is_metachar of c:
         return null
@@ -681,11 +682,8 @@ define _compile_node(node, prog) as:
     if tag == "dot":
         _emit of [prog, ["any"]]
         return 0
-    if tag == "class":
-        local class_icase is 0
-        if (len of node) > 3:
-            class_icase is node[3]
-        _emit of [prog, ["class", node[1], node[2], class_icase]]
+    if tag == "byteclass":
+        _emit of [prog, ["class", 0, node[1], 0]]
         return 0
     if tag == "empty":
         return 0

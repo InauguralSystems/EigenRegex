@@ -1,7 +1,7 @@
 import regex
 load_file of "tests/re2_expected.eigs"
 failures is 0
-features is ["boundary","casefold","named","property_letters","property_numbers","property_psz","casefold_uncased","inline_flags","casefold_property","casefold_closure","casefold_class","boundary_find_all","unicode_replace","unicode_match_start","standalone_flag_quantifier","capture_name_matrix","documented_exclusion"]
+features is ["boundary","casefold","named","property_letters","property_numbers","property_psz","casefold_uncased","inline_flags","casefold_property","casefold_closure","casefold_class","negated_class_sets","unicode_shorthand","utf8_boundary_ranges","boundary_find_all","unicode_replace","unicode_match_start","standalone_flag_quantifier","capture_name_matrix","documented_exclusion"]
 agree is {}
 patterns is {}
 subjects is {}

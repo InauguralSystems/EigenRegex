@@ -1,0 +1,5 @@
+import regex
+if (regex.re_search of [regex.re_compile of "\\p{L}", "中"]) == [0,3]:
+    print of "cold property OK"
+else:
+    print of "cold property FAIL"

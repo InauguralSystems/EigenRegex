@@ -90,6 +90,30 @@ def main():
  for i in range(30):
   b=bodies[i%len(bodies)]; p=('(' if i>=15 else '')+('^' if i%3==0 else '')+'(?i)['+b+']'+(['','+','$'][i%3])+(')' if i>=15 else '')
   add('casefold_class',p,['ABC','abc','123_','é','É','Ö','×','Σ','ω','ı','中','Aé'])
+ # Negated sets exercise normalization before scalar complement: pattern order,
+ # duplicates, overlap, non-ASCII, and ignore-case must not affect membership.
+ neg_bodies=['za','zaza','zac','éa','é-éa','中a中','😀a😀','zaA-Z','Σσς','ÿÀ-Ö','a-cb-d','𐐀𐐨a','KkK','sſS','µΜμ']
+ for i in range(30):
+  body=neg_bodies[i%len(neg_bodies)]
+  pattern=('(?i)' if i>=15 else '')+'[^'+body+']'+(['','+','$'][i%3])
+  add('negated_class_sets',pattern,['z','a','b','é','É','中','😀','K','ſ','μ','𐐀','!','éa','😀a'])
+ # RE2 shorthands are ASCII positive sets, but their complements consume one
+ # complete Unicode scalar.  Cover every form on 2/3/4-byte text, around word
+ # assertions, and under simple folding (notably Kelvin sign for (?i)\\w).
+ shorthand_subjects=['éa','中a','😀a','é_','中7','😀 ','K','ſ','𐐀x','!é','!中','!😀']
+ shorthand_forms=['%s','^%s','%s$','(%s)','%s+','%s?','%s\\b','%s\\B','\\b%s','\\B%s']
+ shorthands=[r'\d',r'\D',r'\s',r'\S',r'\w',r'\W']
+ for i in range(30):
+  token=shorthands[i%len(shorthands)]
+  pattern=shorthand_forms[(i//len(shorthands))%len(shorthand_forms)]%token
+  if i%2: pattern='(?i)'+pattern
+  add('unicode_shorthand',pattern,shorthand_subjects)
+ # Inclusive scalar ranges spanning each UTF-8 width boundary.
+ boundary_ranges=[('\x7f','\x80'),('\u07ff','\u0800'),('\uffff','𐀀')]
+ range_forms=['[%s-%s]','^[%s-%s]$','([%s-%s])','[%s-%s]+','x|[%s-%s]','[%s-%s]|x','(?i)[%s-%s]','(?i)([%s-%s])','[%s-%s]?','[^%s-%s]']
+ for form in range_forms:
+  for lo,hi in boundary_ranges:
+   add('utf8_boundary_ranges',form%(lo,hi),[lo,hi,'x','é','中','😀',lo+hi])
  # Zero-width find-all is compared in byte offsets over multibyte subjects.
  for i in range(30):
   base=[r'\b',r'\B',r'^',r'$',r'^|$',r'\b|$'][i%6]; p=['%s','(%s)','%s|never','never|%s','((%s))'][i//6] % base

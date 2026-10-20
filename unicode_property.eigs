@@ -80,7 +80,7 @@ define _unicode_ast(rs) as:
                 for box in (_unicode_cover of [_unicode_utf8 of lo, _unicode_utf8 of hi, 0]):
                     local nodes is []
                     for br in box:
-                        append of [nodes, ["class", 0, [br]]]
+                        append of [nodes, ["byteclass", [br]]]
                     if (len of nodes) == 1:
                         append of [branches, nodes[0]]
                     else:
@@ -102,4 +102,50 @@ define _unicode_ast(rs) as:
         return branches[0]
     return ["alt", branches]
 
+
+# Sort and coalesce arbitrary scalar ranges.  Most generated property tables
+# are already ordered, so their common path remains linear; hand-written
+# classes take the small insertion-sort fallback when necessary.
+define _normalize_scalar_ranges(rs) as:
+    local ordered is 1
+    local previous_lo is -1
+    for r in rs:
+        if r[0] < previous_lo:
+            ordered is 0
+        previous_lo is r[0]
+    local sorted is []
+    if ordered == 1:
+        for r in rs:
+            append of [sorted, [r[0], r[1]]]
+    else:
+        local used is []
+        for r in rs:
+            append of [used, 0]
+        local count is 0
+        loop while count < (len of rs):
+            local best is -1
+            local i is 0
+            loop while i < (len of rs):
+                if used[i] == 0:
+                    if best < 0 or rs[i][0] < rs[best][0]:
+                        best is i
+                i is i + 1
+            append of [sorted, [rs[best][0], rs[best][1]]]
+            used[best] is 1
+            count is count + 1
+    local out is []
+    for r in sorted:
+        local lo is r[0]
+        local hi is r[1]
+        if lo < 0:
+            lo is 0
+        if hi > 1114111:
+            hi is 1114111
+        if lo <= hi:
+            if (len of out) == 0 or lo > out[(len of out) - 1][1] + 1:
+                append of [out, [lo, hi]]
+            else:
+                if hi > out[(len of out) - 1][1]:
+                    out[(len of out) - 1][1] is hi
+    return out
 

@@ -26,6 +26,15 @@ for t in tests/test_s*.eigs; do
 done
 
 echo "---"
+# Cold-start regressions: one new EigenScript process per first-use probe.
+if ! EIGENSCRIPT="$EIGS" bash tests/test_cold_start.sh; then
+    echo "FAIL: test_cold_start.sh"
+    fail=1
+else
+    echo "PASS: test_cold_start.sh"
+fi
+
+echo "---"
 # Issue #35 pathological Pike-VM scaling gate (four doubling sizes).
 out=$("$EIGS" tests/test_re2_linear.eigs 2>&1); rc=$?
 printf '%s\n' "$out"
