@@ -1,0 +1,3 @@
+# Differential oracle. Keep this synchronized with re2_oracle_version in the
+# generated tests/re2_expected.eigs fixture.
+google-re2==1.1.20251105

@@ -26,10 +26,34 @@ for t in tests/test_s*.eigs; do
 done
 
 echo "---"
+# Cold-start regressions: one new EigenScript process per first-use probe.
+if ! EIGENSCRIPT="$EIGS" bash tests/test_cold_start.sh; then
+    echo "FAIL: test_cold_start.sh"
+    fail=1
+else
+    echo "PASS: test_cold_start.sh"
+fi
+
+echo "---"
+# Issue #35 pathological Pike-VM scaling gate (four doubling sizes).
+out=$("$EIGS" tests/test_re2_linear.eigs 2>&1); rc=$?
+printf '%s\n' "$out"
+if [ "$rc" -ne 0 ] || printf '%s\n' "$out" | grep -q 'FAIL'; then
+    echo "FAIL: test_re2_linear.eigs"
+    fail=1
+else
+    echo "PASS: test_re2_linear.eigs"
+fi
+
+echo "---"
 # Consumer-shaped package smoke: stage into eigs_modules/ and `import regex`.
-if ! EIGENSCRIPT="$EIGS" bash "$(dirname "$0")/test_pkg_smoke.sh" >/tmp/pkg_smoke.$$ 2>&1; then
-    echo "FAIL: test_pkg_smoke.sh"
-    grep -iE 'FAIL|error' /tmp/pkg_smoke.$$ | head -5
+EIGENSCRIPT="$EIGS" bash "$(dirname "$0")/test_pkg_smoke.sh" >/tmp/pkg_smoke.$$ 2>&1
+smoke_rc=$?
+if [ "$smoke_rc" -ne 0 ]; then
+    # Print the smoke test's own last lines, never a grep for the failure we expected: an early exit that printed
+    # no FAIL/error line once left CI showing nothing but this header (PR #37, round 10).
+    echo "FAIL: test_pkg_smoke.sh (rc=$smoke_rc; last 40 lines follow)"
+    tail -40 /tmp/pkg_smoke.$$ | sed 's/^/  | /'
     fail=1
 else
     echo "PASS: test_pkg_smoke.sh"

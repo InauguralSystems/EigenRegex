@@ -1,0 +1,5 @@
+import regex
+if (regex.re_replace of [regex.re_compile of "x*", "é", "#"]) == "#é#":
+    print of "cold zero-width replace OK"
+else:
+    print of "cold zero-width replace FAIL"

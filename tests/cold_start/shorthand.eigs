@@ -1,0 +1,5 @@
+import regex
+if (regex.re_search of [regex.re_compile of "^\\W\\b", "éa"]) == [0,2]:
+    print of "cold shorthand negation OK"
+else:
+    print of "cold shorthand negation FAIL"

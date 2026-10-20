@@ -1,0 +1,5 @@
+import regex
+if (regex.re_search of [regex.re_compile of "[^za]", "za!"]) == [2,3]:
+    print of "cold negated class OK"
+else:
+    print of "cold negated class FAIL"

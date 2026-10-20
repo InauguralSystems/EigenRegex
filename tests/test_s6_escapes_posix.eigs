@@ -49,10 +49,10 @@ prog is regex.re_compile of "\\S+"
 check of ["\\S+ nonspace run", regex.re_match of [prog, "abc"], 1]
 check of ["\\S+ rejects embedded space", regex.re_match of [prog, "a c"], 0]
 
-# glibc-parity trap: \d is a literal 'd' in ERE, not a digit class.
+# RE2 shorthand: \d is the ASCII digit class.
 prog is regex.re_compile of "\\d+"
-check of ["\\d is literal d (glibc parity)", regex.re_match of [prog, "ddd"], 1]
-check of ["\\d does not match digits", regex.re_match of [prog, "123"], 0]
+check of ["\\d matches ASCII digits", regex.re_match of [prog, "123"], 1]
+check of ["\\d rejects letters", regex.re_match of [prog, "ddd"], 0]
 
 check of ["trailing backslash is a parse error", regex.re_compile of "ab\\", null]
 
