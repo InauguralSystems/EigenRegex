@@ -15,6 +15,12 @@ Each entry should name the gap, the workaround used, and a thought on the upstre
 
 ## Entries
 
+### A literal `load_file` inside an uncalled function is still compiled at import (EigenScript#1873)
+- **Encountered:** issue #35, round 3. `\p{}` keeps its range table (`unicode_categories.eigs`, 42 KB) and the lazy builder (`unicode_property.eigs`) in separate files. Both are loaded by `load_file of "<literal>"` only on the first `\p{...}` compile.
+- **Symptom:** `import regex` alone, v0.46.0 release binary, best of 5, takes 0.23 s with both files present and 0.19 s with them removed, which equals the pre-`\p{}` baseline. A program that never uses `\p{}` pays about 40 ms (+20%) per import. Max RSS fell from 77 MB to 52 MB, so only time regressed. The cause: when a program does not read the observer, its gate compiles every literal load target to prove none reads it either, recursing into uncalled function bodies (`obs_gate_resolve_static_loads`, `chunk_scan_static_loads`).
+- **Workaround:** none taken. Hiding the path from the scan, for example by building it at runtime, would make the unit opaque and turn the observer on for every importer.
+- **Upstream fix:** EigenScript#1873: decide "reads the observer?" without a full compile, or reuse the compiled chunk when the load executes.
+
 ### String ordering operators (`<`, `<=`, `>`, `>=`) don't work on strings — FIXED 2026-05-31
 - **Encountered:** S1 prep (probing single-char comparison)
 - **Symptom:** `"a" < "m"` returns 0. `"m" < "z"` returns 0. `"z" > "a"` returns 0. All return false regardless of actual lex order. Only `==` and `!=` work on strings.
