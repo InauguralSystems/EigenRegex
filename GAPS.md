@@ -15,6 +15,19 @@ Each entry should name the gap, the workaround used, and a thought on the upstre
 
 ## Entries
 
+### Unicode properties require a scalar-width Pike scheduler
+- **Encountered:** issue #35 differential (`tests/re2_diff.py`).
+- **Symptom:** Python's `unicodedata.category` supplies the oracle for `L`,
+  `Lu`, `Ll`, `Lt`, `Lm`, `Lo`, `N`, `Nd`, `Nl`, `No`, `P`, `S`, and `Z`
+  (plus negations), but the VM advances and schedules exactly one UTF-8 byte
+  per Pike step. A property transition consumes a variable-width scalar, so
+  putting scalar ranges in today's byte `class` instruction would be wrong.
+- **Workaround:** reject `\p{...}`/`\P{...}`, test that refusal, and retain the
+  README **Not supported** entry rather than half-landing ASCII behavior.
+- **Upstream fix:** use work queues keyed by destination byte offset (or make
+  all consuming instructions scalar-aware), then generate complete ranges
+  from a pinned Unicode database and land properties atomically.
+
 ### String ordering operators (`<`, `<=`, `>`, `>=`) don't work on strings — FIXED 2026-05-31
 - **Encountered:** S1 prep (probing single-char comparison)
 - **Symptom:** `"a" < "m"` returns 0. `"m" < "z"` returns 0. `"z" > "a"` returns 0. All return false regardless of actual lex order. Only `==` and `!=` work on strings.

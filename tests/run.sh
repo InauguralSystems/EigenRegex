@@ -26,6 +26,17 @@ for t in tests/test_s*.eigs; do
 done
 
 echo "---"
+# Issue #35 pathological Pike-VM scaling gate (four doubling sizes).
+out=$("$EIGS" tests/test_re2_linear.eigs 2>&1); rc=$?
+printf '%s\n' "$out"
+if [ "$rc" -ne 0 ] || printf '%s\n' "$out" | grep -q 'FAIL'; then
+    echo "FAIL: test_re2_linear.eigs"
+    fail=1
+else
+    echo "PASS: test_re2_linear.eigs"
+fi
+
+echo "---"
 # Consumer-shaped package smoke: stage into eigs_modules/ and `import regex`.
 if ! EIGENSCRIPT="$EIGS" bash "$(dirname "$0")/test_pkg_smoke.sh" >/tmp/pkg_smoke.$$ 2>&1; then
     echo "FAIL: test_pkg_smoke.sh"

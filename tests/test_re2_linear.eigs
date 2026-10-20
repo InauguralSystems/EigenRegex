@@ -1,0 +1,33 @@
+import regex
+failures is 0
+define timed(pat, n) as:
+    local s is ""
+    for i in range of n:
+        s is s + "a"
+    local p is regex.re_compile of pat
+    local baseline is ""
+    for i in range of 1000:
+        baseline is baseline + "a"
+    local t0 is monotonic_ms of null
+    regex.re_search of [p, baseline]
+    for k in range of 4:
+        regex.re_search of [p, s]
+    return (monotonic_ms of null) - t0
+for row in [["boundary","(\\b|a|aa)*z"],["casefold","(?i)(a|aa)*Z"],["named","(?P<x>a|aa)*z"]]:
+    local prior is 0
+    for n in [125,250,500,1000]:
+        local ms is timed of [row[1],n]
+        for trial in range of 2:
+            local candidate is timed of [row[1],n]
+            if candidate < ms:
+                ms is candidate
+        if prior > 0:
+            local ratio is ms / prior
+            print of ("timing feature=" + row[0] + " size=" + (str of n) + " ratio=" + (str of ratio))
+            if ratio > 2.6:
+                print of ("linear ratio " + row[0] + " FAIL")
+                failures is failures + 1
+            else:
+                print of ("linear ratio " + row[0] + " OK")
+        prior is ms
+print of ("failures: " + (str of failures))
