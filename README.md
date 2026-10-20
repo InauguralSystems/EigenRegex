@@ -36,9 +36,14 @@ under `regex.*` and never collide with a consumer's globals.
 - ASCII word-boundary assertions `\b` and `\B` (RE2 semantics: Unicode
   letters are non-word characters)
 - Unicode-aware simple case folding via `(?i)` or `re_compile([pattern, "i"])`
-- Unicode general-category properties `\p{L}`, `\P{Nd}`, etc. (Unicode 15.0.0, generated from Python `unicodedata`)
+- Unicode general-category properties `\p{L}`, `\P{Nd}`, etc. (Unicode 15.0.0, generated from pinned UCD files)
 
 ## Not supported
+
+The RE2 differential is generated with the pinned `google-re2==1.1.20251105`
+oracle. Unicode categories and simple case folds come from the pinned Unicode
+15.0.0 `UnicodeData.txt` and `CaseFolding.txt` inputs in `tools/ucd/`, whose
+SHA-256 digests are enforced by the generator.
 
 - Backreferences (would force backtracking; out of scope for Pike-VM)
 - Lookahead / lookbehind

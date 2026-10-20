@@ -1,7 +1,7 @@
 import regex
 load_file of "tests/re2_expected.eigs"
 failures is 0
-features is ["boundary","casefold","named","property_letters","property_numbers","property_psz","casefold_uncased","inline_flags","casefold_property","casefold_closure","named_invalid"]
+features is ["boundary","casefold","named","property_letters","property_numbers","property_psz","casefold_uncased","inline_flags","casefold_property","casefold_closure","casefold_class","boundary_find_all","standalone_flag_quantifier","capture_name_matrix","documented_exclusion"]
 agree is {}
 patterns is {}
 subjects is {}
@@ -19,12 +19,32 @@ define check(label, actual, expected) as:
 for c in re2_diff_cases:
     if not (has_key of [programs,c.pattern]):
         programs[c.pattern] is regex.re_compile of c.pattern
-    if has_key of [c,"compile_error"]:
-        if programs[c.pattern] == null and (regex.re_compile_error of null) == c.compile_error:
+    if c.feature == "documented_exclusion":
+        if programs[c.pattern] == null:
             agree[c.feature] is agree[c.feature] + 1
         else:
             failures is failures + 1
             print of ("differ feature=" + c.feature + " pattern=" + c.pattern + " FAIL")
+        patterns[c.feature][c.pattern] is 1
+        subjects[c.feature] is subjects[c.feature] + 1
+        continue
+    if c.compile_ok == false or (has_key of [c,"compile_only"]):
+        local compiled is programs[c.pattern] != null
+        if compiled == c.compile_ok:
+            agree[c.feature] is agree[c.feature] + 1
+        else:
+            failures is failures + 1
+            print of ("differ feature=" + c.feature + " pattern=" + c.pattern + " compile acceptance FAIL")
+        patterns[c.feature][c.pattern] is 1
+        subjects[c.feature] is subjects[c.feature] + 1
+        continue
+    if has_key of [c,"operation"]:
+        local all_spans is regex.re_find_all of [programs[c.pattern],c.subject]
+        if all_spans == c.all_spans:
+            agree[c.feature] is agree[c.feature] + 1
+        else:
+            failures is failures + 1
+            print of ("differ feature=" + c.feature + " pattern=" + c.pattern + " subject=" + c.subject + " find_all FAIL")
         patterns[c.feature][c.pattern] is 1
         subjects[c.feature] is subjects[c.feature] + 1
         continue
@@ -48,16 +68,15 @@ check of ["boundary at end",regex.re_search of [regex.re_compile of "cat\\b","ca
 check of ["boundary beside non-ASCII letter",regex.re_search of [regex.re_compile of "é\\b","é"],null]
 check of ["casefold non-ASCII letter",regex.re_match of [regex.re_compile of "(?i)Ä","ä"],1]
 check of ["casefold sigma trio",regex.re_match of [regex.re_compile of "(?i)σ","ς"],1]
-check of ["duplicate group names refused",regex.re_compile of "(?P<x>a)(?P<x>b)",null]
-check of ["duplicate group name diagnostic",regex.re_compile_error of null,"duplicate group name: x"]
+check of ["duplicate group names accepted",(regex.re_compile of "(?P<x>a)(?P<x>b)") != null,true]
+check of ["duplicate name resolves first group",(regex.re_search_named of [regex.re_compile of "(?P<x>a)(?P<x>b)","ab"]).groups.x,[0,1]]
 check of ["named group inside alternation",(regex.re_search_named of [regex.re_compile of "(q|(?P<x>a))","a"]).groups.x,[0,1]]
 check of ["named group inside repeat",(regex.re_search_named of [regex.re_compile of "(?P<x>a)*","aaa"]).groups.x,[2,3]]
-check of ["named identifier digit first refused",regex.re_compile of "(?P<1x>a)",null]
-check of ["named identifier digit first diagnostic",regex.re_compile_error of null,"invalid named capture identifier: 1x"]
+check of ["named identifier digit first accepted",(regex.re_compile of "(?P<1x>a)") != null,true]
 check of ["named identifier punctuation refused",regex.re_compile of "(?P<x-y>a)",null]
 check of ["named identifier punctuation diagnostic",regex.re_compile_error of null,"invalid named capture identifier: x-y"]
-check of ["named identifier non-ASCII refused",regex.re_compile of "(?P<é>a)",null]
-check of ["named identifier non-ASCII diagnostic",regex.re_compile_error of null,"invalid named capture identifier: é"]
+check of ["named identifier non-ASCII accepted",(regex.re_compile of "(?P<é>a)") != null,true]
+check of ["standalone flag cannot be repeated",regex.re_compile of "a(?i){3}b",null]
 check of ["compound property class refused",regex.re_compile of "[\\p{L}0-9]",null]
 check of ["unsupported mark category refused",regex.re_compile of "\\p{M}",null]
 check of ["unsupported separator subcategory refused",regex.re_compile of "\\p{Zs}",null]
