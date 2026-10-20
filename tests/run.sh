@@ -47,9 +47,13 @@ fi
 
 echo "---"
 # Consumer-shaped package smoke: stage into eigs_modules/ and `import regex`.
-if ! EIGENSCRIPT="$EIGS" bash "$(dirname "$0")/test_pkg_smoke.sh" >/tmp/pkg_smoke.$$ 2>&1; then
-    echo "FAIL: test_pkg_smoke.sh"
-    grep -iE 'FAIL|error' /tmp/pkg_smoke.$$ | head -5
+EIGENSCRIPT="$EIGS" bash "$(dirname "$0")/test_pkg_smoke.sh" >/tmp/pkg_smoke.$$ 2>&1
+smoke_rc=$?
+if [ "$smoke_rc" -ne 0 ]; then
+    # Print the smoke test's own last lines, never a grep for the failure we expected: an early exit that printed
+    # no FAIL/error line once left CI showing nothing but this header (PR #37, round 10).
+    echo "FAIL: test_pkg_smoke.sh (rc=$smoke_rc; last 40 lines follow)"
+    tail -40 /tmp/pkg_smoke.$$ | sed 's/^/  | /'
     fail=1
 else
     echo "PASS: test_pkg_smoke.sh"
