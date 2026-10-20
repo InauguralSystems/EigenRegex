@@ -42,6 +42,11 @@ under `regex.*` and never collide with a consumer's globals.
 
 - Backreferences (would force backtracking; out of scope for Pike-VM)
 - Lookahead / lookbehind
+- Unicode property escapes inside compound character classes (for example,
+  `[\p{L}0-9]`); these are rejected rather than silently miscompiled
+- General categories outside the listed `L`, `Lu`, `Ll`, `Lt`, `Lm`, `Lo`,
+  `N`, `Nd`, `Nl`, `No`, `P`, `S`, and `Z` set, including `M*`, `C*`,
+  `Zs`/`Zl`/`Zp`, and the `P*`/`S*` subcategories
 
 ## Layout
 
