@@ -18,9 +18,12 @@ compat layer (`regex.compat_*`) that mirrors the libc-backed
 all green — including a differential suite run against the live libc
 builtins as the oracle.
 
-Packaged for `import` (issue #13): the engine ships as a single root
-`regex.eigs` with an `eigs.json` manifest, so its internals namespace
-under `regex.*` and never collide with a consumer's globals.
+Packaged for `import` (issue #13): the package consists of `regex.eigs`,
+`eigs.json`, and the two lazily loaded data files `unicode_categories.eigs` and
+`unicode_casefold.eigs`. Its internals namespace under `regex.*` and never
+collide with a consumer's globals. Ordinary classes and shorthands need only
+`regex.eigs` and `eigs.json`; `\p{...}` and `(?i)` load their respective data
+tables on first use.
 
 ## Supported
 
@@ -30,7 +33,9 @@ under `regex.*` and never collide with a consumer's globals.
 - Grouping `( ... )`
 - Repetition `*`, `+`, `?`, `{n}`, `{n,}`, `{n,m}` (greedy and lazy)
 - Char classes: `.`, `[abc]`, `[^abc]`, `[a-z]`, POSIX `[[:alpha:]]` etc.,
-  `\w` `\W` `\s` `\S` (note: `\d` is a literal `d`, matching glibc ERE)
+  `\d` `\D` `\w` `\W` `\s` `\S` (RE2 ASCII semantics: digit is
+  `[0-9]`, word is `[A-Za-z0-9_]`, and space is `[\t-\r ]`; uppercase forms
+  are their Unicode-scalar complements)
 - Anchors `^`, `$`
 - Capturing groups (numbered and `(?P<name>...)` named groups)
 - ASCII word-boundary assertions `\b` and `\B` (RE2 semantics: Unicode
@@ -63,6 +68,8 @@ SHA-256 digests are enforced by the generator.
     (substring lists; alias to the bare builtin names where libc regex
     is absent — see below)
   - everything else (`_rx_parse`, `_peek`, …) is `_`-private to the module
+- `unicode_categories.eigs` — lazy generated data for `\p{...}`
+- `unicode_casefold.eigs` — lazy generated data for `(?i)`
 - `eigs.json` — package manifest (`name: regex`)
 - `tests/` — per-stage tests + `test_pkg_smoke.sh` (consumer-shaped)
 
@@ -77,7 +84,7 @@ uses the `re_*` prefix so both can be used in the same script:
 | backend | libc POSIX ERE in C | Pike-VM in EigenScript |
 | speed | native, fast | interpreted, ~100–1000× slower |
 | worst case | can backtrack catastrophically | guaranteed O(n·m) |
-| features | POSIX ERE + GNU `\w \s \b` | ERE parity + `\b`, named groups, case folding; lazy quantifiers extra |
+| features | POSIX ERE + GNU `\w \s \b` | ERE parity + RE2 ASCII `\d \w \s` (and complements), `\b`, named groups, case folding; lazy quantifiers extra |
 | match rule | leftmost-longest (POSIX) | leftmost-first (Pike-VM priority) |
 | return shape | substring list | positional spans `[s, e, ...]` |
 
@@ -128,7 +135,7 @@ r is regex.re_search_named of [named, "hello"]
 prog is regex.re_compile of "a+"
 all is regex.re_find_all of [prog, "aaabaaab"]         # → [[0,3], [4,7]]
 
-prog is regex.re_compile of "[0-9]{2,4}"
+prog is regex.re_compile of "\\d{2,4}"                 # RE2 ASCII digit shorthand
 out is regex.re_replace of [prog, "year 2026!", "Y"]   # → "year Y!"
 
 # Builtin-shaped drop-ins (substring lists, not spans):
