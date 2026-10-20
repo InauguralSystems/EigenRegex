@@ -1,0 +1,41 @@
+import regex
+
+failures is 0
+define check(label, actual, expected) as:
+    if actual == expected:
+        print of (label + " OK")
+    else:
+        print of (label + " FAIL")
+        failures is failures + 1
+
+# Fifty corpus cases per landed feature, varied by surrounding byte offsets.
+for i in range of 50:
+    local pad is ""
+    for j in range of i:
+        pad is pad + "!"
+    local r is regex.re_search of [regex.re_compile of "\\bcat\\b", pad + "cat!"]
+    check of ["boundary corpus " + (str of i), r[0], i]
+for i in range of 50:
+    local pad is ""
+    for j in range of i:
+        pad is pad + "x"
+    local r is regex.re_search of [regex.re_compile of "(?i)É", pad + "é"]
+    check of ["casefold corpus " + (str of i), r[0], i]
+for i in range of 50:
+    local pad is ""
+    for j in range of i:
+        pad is pad + "!"
+    local p is regex.re_compile of "(?P<word>a+)"
+    local r is regex.re_search_named of [p, pad + "aaa"]
+    check of ["named corpus " + (str of i), r.groups.word[0], i]
+
+check of ["boundary at start", (regex.re_search of [regex.re_compile of "\\bcat", "cat"])[0], 0]
+check of ["boundary at end", (regex.re_search of [regex.re_compile of "cat\\b", "cat"])[1], 3]
+check of ["non-ASCII is non-word like RE2", regex.re_search of [regex.re_compile of "é\\b", "é"], null]
+check of ["non-ASCII fold", regex.re_match of [regex.re_compile of "(?i)Å", "å"], 1]
+check of ["API case flag", regex.re_match of [regex.re_compile of ["É", "i"], "é"], 1]
+check of ["duplicate names refused", regex.re_compile of "(?P<x>a)(?P<x>b)", null]
+check of ["duplicate name diagnostic", regex.re_compile_error of null, "duplicate group name: x"]
+check of ["named span exposed", (regex.re_search_named of [regex.re_compile of "(?P<x>a)", "a"]).groups.x, [0, 1]]
+print of "==="
+print of ("failures: " + (str of failures))

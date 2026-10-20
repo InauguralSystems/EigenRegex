@@ -14,7 +14,7 @@ POSIX `[[:alpha:]]`-style classes, escapes (`\.` `\w` `\W` `\s` `\S`),
 `^`, `$`, numbered capture groups, `re_replace`, and a builtin-shaped
 compat layer (`regex.compat_*`) that mirrors the libc-backed
 `regex_match` / `regex_find` / `regex_replace` builtins.
-412 test checks across S1–S12 plus a consumer-shaped package smoke test,
+570 test checks across S1–S13 plus a consumer-shaped package smoke test,
 all green — including a differential suite run against the live libc
 builtins as the oracle.
 
@@ -32,22 +32,24 @@ under `regex.*` and never collide with a consumer's globals.
 - Char classes: `.`, `[abc]`, `[^abc]`, `[a-z]`, POSIX `[[:alpha:]]` etc.,
   `\w` `\W` `\s` `\S` (note: `\d` is a literal `d`, matching glibc ERE)
 - Anchors `^`, `$`
-- Capturing groups (numbered)
+- Capturing groups (numbered and `(?P<name>...)` named groups)
+- ASCII word-boundary assertions `\b` and `\B` (RE2 semantics: Unicode
+  letters are non-word characters)
+- Unicode-aware simple case folding via `(?i)` or `re_compile([pattern, "i"])`
 
 ## Not supported
 
 - Backreferences (would force backtracking; out of scope for Pike-VM)
-- Lookahead / lookbehind; `\b` word boundaries
-- Named groups
-- Unicode classes (`\p{...}`)
-- Case-insensitive flags (yet)
+- Lookahead / lookbehind
+- Unicode classes (`\p{...}`): the VM currently advances one UTF-8 byte per
+  Pike step; correct scalar-width classes require a future code-point scheduler
 
 ## Layout
 
 - `regex.eigs` — the package: parse → compile → Pike-VM → public API, one
   importable file. Public surface (namespaced under `regex.*`):
   - spans-shaped: `re_compile`, `re_match`, `re_search`, `re_find_all`,
-    `re_replace`
+    `re_replace`, `re_search_named`, `re_group_names`, `re_compile_error`
   - builtin-shaped: `compat_match`, `compat_find`, `compat_replace`
     (substring lists; alias to the bare builtin names where libc regex
     is absent — see below)
@@ -66,7 +68,7 @@ uses the `re_*` prefix so both can be used in the same script:
 | backend | libc POSIX ERE in C | Pike-VM in EigenScript |
 | speed | native, fast | interpreted, ~100–1000× slower |
 | worst case | can backtrack catastrophically | guaranteed O(n·m) |
-| features | POSIX ERE + GNU `\w \s \b` | ERE parity minus `\b`; lazy quantifiers extra |
+| features | POSIX ERE + GNU `\w \s \b` | ERE parity + `\b`, named groups, case folding; lazy quantifiers extra |
 | match rule | leftmost-longest (POSIX) | leftmost-first (Pike-VM priority) |
 | return shape | substring list | positional spans `[s, e, ...]` |
 
@@ -75,7 +77,7 @@ guarantee or are running in a no-libc environment. For the latter, the
 namespaced `regex.compat_*` functions re-expose the builtins' exact
 shapes on top of the Pike VM; alias them to the bare builtin names where
 libc regex is gone (`regex_match is regex.compat_match`). Divergences —
-leftmost-first vs POSIX leftmost-longest, no `\b` — are documented in the
+leftmost-first vs POSIX leftmost-longest — are documented in the
 compat section of `regex.eigs`.
 
 ## Install
@@ -101,6 +103,16 @@ r is regex.re_search of [prog, "  foo_2 bar"]          # → [2, 7]
 
 prog is regex.re_compile of "(\\w+) (\\w+)"
 r is regex.re_search of [prog, "hello world"]          # → [0, 11, 0, 5, 6, 11]
+
+# RE2-style ASCII word boundaries and Unicode simple case folding:
+r is regex.re_search of [regex.re_compile of "\\bcat\\b", "a cat!"] # → [2, 5]
+folded is regex.re_compile of ["École", "i"]
+regex.re_match of [folded, "éCOLE"]                    # → 1
+
+# Named groups retain positional spans and are also available by name:
+named is regex.re_compile of "(?P<word>\\w+)"
+r is regex.re_search_named of [named, "hello"]
+# → {"spans": [0,5,0,5], "groups": {"word": [0,5]}}
 
 prog is regex.re_compile of "a+"
 all is regex.re_find_all of [prog, "aaabaaab"]         # → [[0,3], [4,7]]
