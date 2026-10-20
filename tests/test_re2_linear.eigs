@@ -2,7 +2,7 @@ import regex
 failures is 0
 define sample(p, s) as:
     local t0 is monotonic_ms of null
-    for k in range of 4:
+    for k in range of 8:
         regex.re_search of [p, s]
     return (monotonic_ms of null) - t0
 define timed(pat, n) as:
@@ -22,7 +22,9 @@ define timed(pat, n) as:
     return ms
 for row in [["boundary","(\\b|a|aa)*z"],["casefold","(?i)(a|aa)*Z"],["named","(?P<x>a|aa)*z"]]:
     local prior is 0
-    for n in [300,600,1200,2400]:
+    # Stop at 4800: on the reference runner the real casefold sample reaches
+    # about 2 s here, the requested runtime bound for strengthening this gate.
+    for n in [300,600,1200,2400,4800]:
         local ms is timed of [row[1],n]
         print of ("timing feature=" + row[0] + " size=" + (str of n) + " ms=" + (str of ms))
         if n == 300 and ms < 50:
@@ -30,7 +32,8 @@ for row in [["boundary","(\\b|a|aa)*z"],["casefold","(?i)(a|aa)*Z"],["named","(?
             failures is failures + 1
         if prior > 0:
             local ratio is ms / prior
-            print of ("timing feature=" + row[0] + " size=" + (str of n) + " ratio=" + (str of ratio))
+            local margin is 2.6 - ratio
+            print of ("timing feature=" + row[0] + " size=" + (str of n) + " ratio=" + (str of ratio) + " margin=" + (str of margin))
             if ratio > 2.6:
                 print of ("linear ratio " + row[0] + " FAIL")
                 failures is failures + 1

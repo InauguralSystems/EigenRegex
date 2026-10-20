@@ -1,0 +1,105 @@
+# Lazy Unicode-property UTF-8 AST builder.
+define _unicode_utf8(cp) as:
+    if cp <= 127:
+        return [cp]
+    if cp <= 2047:
+        local q is floor of (cp / 64)
+        return [192 + q, 128 + cp - q * 64]
+    if cp <= 65535:
+        local q2 is floor of (cp / 4096)
+        local q1 is floor of (cp / 64)
+        return [224 + q2, 128 + q1 - q2 * 64, 128 + cp - q1 * 64]
+    local q3 is floor of (cp / 262144)
+    local q2 is floor of (cp / 4096)
+    local q1 is floor of (cp / 64)
+    return [240 + q3, 128 + q2 - q3 * 64, 128 + q1 - q2 * 64, 128 + cp - q1 * 64]
+
+# Cover an inclusive, same-width UTF-8 interval with byte-range boxes.
+define _unicode_cover(x, y, pos) as:
+    if pos == (len of x):
+        return [[]]
+    if x[pos] == y[pos]:
+        local result is []
+        for tail in (_unicode_cover of [x, y, pos + 1]):
+            append of [result, concat of [[[x[pos], x[pos]]], tail]]
+        return result
+    local xmax is []
+    local ymin is []
+    for i in range of (len of x):
+        append of [xmax, x[i]]
+        append of [ymin, y[i]]
+        if i > pos:
+            xmax[i] is 191
+            ymin[i] is 128
+    local result is _unicode_cover of [x, xmax, pos]
+    if x[pos] + 1 <= y[pos] - 1:
+        local middle is [[x[pos] + 1, y[pos] - 1]]
+        local i is pos + 1
+        loop while i < (len of x):
+            append of [middle, [128, 191]]
+            i is i + 1
+        append of [result, middle]
+    for box in (_unicode_cover of [ymin, y, pos]):
+        append of [result, box]
+    return result
+
+define _unicode_complement(rs) as:
+    local out is []
+    local at is 0
+    for r in rs:
+        if at < r[0]:
+            append of [out, [at, r[0] - 1]]
+        at is r[1] + 1
+    if at <= 1114111:
+        append of [out, [at, 1114111]]
+    local clean is []
+    for r in out:
+        if r[0] <= 55295:
+            local hi is r[1]
+            if hi > 55295:
+                hi is 55295
+            append of [clean, [r[0], hi]]
+        if r[1] >= 57344:
+            local lo is r[0]
+            if lo < 57344:
+                lo is 57344
+            append of [clean, [lo, r[1]]]
+    return clean
+
+define _unicode_ast(rs) as:
+    local branches is []
+    for r in rs:
+        for bounds in [[0,127],[128,2047],[2048,65535],[65536,1114111]]:
+            local lo is r[0]
+            local hi is r[1]
+            if lo < bounds[0]:
+                lo is bounds[0]
+            if hi > bounds[1]:
+                hi is bounds[1]
+            if lo <= hi:
+                for box in (_unicode_cover of [_unicode_utf8 of lo, _unicode_utf8 of hi, 0]):
+                    local nodes is []
+                    for br in box:
+                        append of [nodes, ["class", 0, [br]]]
+                    if (len of nodes) == 1:
+                        append of [branches, nodes[0]]
+                    else:
+                        append of [branches, ["concat", nodes]]
+    loop while (len of branches) > 200:
+        local grouped is []
+        local i is 0
+        loop while i < (len of branches):
+            local chunk is []
+            local stop is i + 200
+            if stop > (len of branches):
+                stop is len of branches
+            loop while i < stop:
+                append of [chunk, branches[i]]
+                i is i + 1
+            append of [grouped, ["alt", chunk]]
+        branches is grouped
+    if (len of branches) == 1:
+        return branches[0]
+    return ["alt", branches]
+
+
