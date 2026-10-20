@@ -10,7 +10,9 @@ set -euo pipefail
 
 EIGS="${EIGENSCRIPT:-eigenscript}"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-PKG_NAME="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["name"])' "$REPO_ROOT/eigs.json")"
+# No python3 here: the devcontainer image carries only EigenScript and a C toolchain (PR #37 failed CI on it).
+PKG_NAME="$(sed -n 's/^[[:space:]]*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$REPO_ROOT/eigs.json" | head -1)"
+[ -n "$PKG_NAME" ] || { echo "FAIL: could not read the package name from eigs.json"; exit 1; }
 mapfile -t DATA_FILES < <(
     grep -oE 'load_file of "[^"]+"' "$REPO_ROOT/$PKG_NAME.eigs" |
         sed -E 's/.*"([^"]+)"/\1/' | sort -u
