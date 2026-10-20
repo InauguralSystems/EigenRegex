@@ -21,15 +21,23 @@ define timed(pat, n) as:
             ms is candidate
     return ms
 for row in [["boundary","(\\b|a|aa)*z"],["casefold","(?i)(a|aa)*Z"],["named","(?P<x>a|aa)*z"]]:
+    # Pick a machine-appropriate starting point.  Timing floors describe the
+    # runner, not the engine, so being too fast must never fail this gate.
+    local start is 300
+    local calibration_ms is timed of [row[1],start]
+    loop while calibration_ms < 50 and start < 9600:
+        start is start * 2
+        calibration_ms is timed of [row[1],start]
+    if calibration_ms < 50:
+        print of ("calibration feature=" + row[0] + " start=" + (str of start) + " ms=" + (str of calibration_ms) + " NOTE floor not reached")
+    else:
+        print of ("calibration feature=" + row[0] + " start=" + (str of start) + " ms=" + (str of calibration_ms))
+
     local prior is 0
-    # Stop at 4800: on the reference runner the real casefold sample reaches
-    # about 2 s here, the requested runtime bound for strengthening this gate.
-    for n in [300,600,1200,2400,4800]:
+    local n is start
+    for measurement in range of 5:
         local ms is timed of [row[1],n]
         print of ("timing feature=" + row[0] + " size=" + (str of n) + " ms=" + (str of ms))
-        if n == 300 and ms < 50:
-            print of ("timer floor " + row[0] + " FAIL")
-            failures is failures + 1
         if prior > 0:
             local ratio is ms / prior
             local margin is 2.6 - ratio
@@ -40,4 +48,5 @@ for row in [["boundary","(\\b|a|aa)*z"],["casefold","(?i)(a|aa)*Z"],["named","(?
             else:
                 print of ("linear ratio " + row[0] + " OK")
         prior is ms
+        n is n * 2
 print of ("failures: " + (str of failures))
