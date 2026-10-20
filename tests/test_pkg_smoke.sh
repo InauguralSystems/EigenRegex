@@ -20,6 +20,7 @@ mkdir -p "$TMP/eigs_modules/$PKG_NAME"
 cp "$REPO_ROOT/$PKG_NAME.eigs" "$TMP/eigs_modules/$PKG_NAME/"
 cp "$REPO_ROOT/eigs.json"      "$TMP/eigs_modules/$PKG_NAME/"
 cp "$REPO_ROOT/unicode_categories.eigs" "$TMP/eigs_modules/$PKG_NAME/"
+cp "$REPO_ROOT/unicode_casefold.eigs" "$TMP/eigs_modules/$PKG_NAME/"
 cp "$REPO_ROOT/unicode_property.eigs" "$TMP/eigs_modules/$PKG_NAME/"
 
 cat > "$TMP/app.eigs" <<EOF

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Generate differential fixtures.  google-re2, never Python re, is the oracle."""
-import importlib.metadata,json
+import importlib.metadata,json,re
 from pathlib import Path
 import re2
 VERSION=importlib.metadata.version('google-re2')
@@ -34,31 +34,55 @@ def properties():
  forms=['%s','^%s$','(%s)','%s+','%s+?','(%s|x)','(x|%s)','x%s','%sx','%s?']
  subjects=['Aé中𐐀','aǅʰ','7Ⅷ²','!+—',' \u2028','xyz','𐐨!7','']
  for family,cats in {'property_letters':['L','Lu','Ll','Lt','Lm','Lo'],'property_numbers':['N','Nd','Nl','No'],'property_psz':['P','S','Z']}.items():
-  for i in range(50):
+  target=72 if family=='property_letters' else 50
+  for i in range(target):
    cat=cats[i%len(cats)]; token=('\\P' if (i//len(cats))%2 else '\\p')+'{'+cat+'}'
    add(family,forms[(i//(2*len(cats)))%len(forms)]%token,subjects)
 def main():
  # Existing feature families, all evaluated directly by RE2.
  for word in ['cat','dog','a1','x_y','Z9']:
-  for f in [r'\b%s\b',r'^\b%s\b$',r'(\b%s\b)',r'\b(%s)\b',r'\b%s\b!',r'!\b%s\b']:
+  for f in [r'\b%s\b',r'^\b%s\b$',r'(\b%s\b)',r'\b(%s)\b',r'\b%s\b!',r'!\b%s\b',r'(\b%s\b|never)',r'(never|\b%s\b)',r'\b%s+\b',r'\b%s\b.*']:
    add('boundary',f%word,[word,'!'+word+'!','É'+word,'nothing'])
  for token in ['cat','Dog','É','Ä','Σ','σ','ς']:
   for f in ['%s','^%s$','(%s)','%s+','%s+?','(%s|never)','(never|%s)','[x]%s','%s[0-9]?','%s.*']:
    add('casefold','(?i)'+f%token,[token,token.swapcase(),'!'+token.swapcase()+'!','nothing'])
- for i in range(30):
+ for i in range(50):
   name=['alpha','bravo','charlie','delta','echo'][i%5]+str(i); add('named',f'(?P<{name}>a'+('?' if i%2 else '+')+')',['','a','aaa','!a!'])
  properties()
- for scalar in ['中','文','€','😀','🧪','א','ا','ह','ก','あ','ア','한','々','∞','→']:
-  add('casefold_uncased','(?i)^'+scalar+'$',[scalar,'x'+scalar,scalar+'x'])
+ uncased=['中','文','€','😀','🧪','א','ا','ह','ก','あ','ア','한','々','∞','→']
+ for scalar in uncased:
+  for form in ['(?i)%s','(?i)^%s$']:
+   add('casefold_uncased',form%scalar,[scalar,'!'+scalar+'!','x'+scalar,scalar+'x'])
+ for scalar in uncased[:10]: add('casefold_uncased','(?i)K'+scalar,['k'+scalar,'K'+scalar,scalar])
  for p in ['a(?i)b','A(?i)b','ab(?i)c','(a(?i)b)c','(a|b(?i)c)d','x(?i:ab)y']:
   for suffix in ['','+','?','|q','c','中']: add('inline_flags',p+suffix,['ab','aB','Ab','AB','abc','bCd','q','中'])
  for token in [r'\p{Lu}',r'\p{Ll}',r'\P{Lu}',r'\P{Ll}',r'\p{L}',r'\P{L}']:
   for form in ['(?i)%s','(?i)^%s$','(?i)(%s)','x(?i)%s','(?i:%s)','(?i)%s+']:
    add('casefold_property',form%token,['K','k','K','S','s','ſ','µ','μ','Μ','Ä','ä','中','𐐀','𐐨','!'])
- # Targeted simple-fold closure (not Python's broader fold, notably no dotless i).
- pairs=['Aa','KkK','Ssſ','Σσς','Μμµ','Éé','Ää','Ωω','ÅåÅ','Ǆǅǆ']
- for chars in pairs:
-  for p in chars: add('casefold_closure','(?i)'+p,list(chars)+list('ıI'))
+ # Every member of every multi-member Unicode 15.0 C/S simple-fold class is
+ # exercised in both roles: once as the pattern and against the entire class.
+ fold_path=Path(__file__).parents[1]/'.cache'/'ucd'/'15.0.0'/'CaseFolding.txt'
+ if not fold_path.is_file(): raise SystemExit('missing cached CaseFolding.txt; run tools/gen_unicode_categories.py')
+ parent={}
+ def find(x):
+  parent.setdefault(x,x)
+  while parent[x]!=x: parent[x]=parent[parent[x]]; x=parent[x]
+  return x
+ def union(a,b):
+  a,b=find(a),find(b)
+  if a!=b: parent[b]=a
+ for raw in fold_path.read_text().splitlines():
+  line=raw.split('#',1)[0].strip()
+  if line:
+   a,status,b,*_=[x.strip() for x in line.split(';')]
+   if status in ('C','S'): union(int(a,16),int(b,16))
+ groups={}
+ for cp in parent: groups.setdefault(find(cp),[]).append(chr(cp))
+ for chars in groups.values():
+  if len(chars)>1:
+   for char in chars: add('casefold_closure','(?i)'+re.escape(char),chars)
+ # Preserve the round-5 distinct-pattern floor in addition to full closure.
+ add('casefold_closure','(?i)^a$',['a','A'])
  # At least 30 class/range patterns under ignore-case.
  bodies=['a-z','A-Z0-9_','^a-z','É-Ü','a-zÉ','A-Fx-z','0-9a-f','^É-Ü','K-S','Σ-Ω','a-cX-Z','^A-Z','À-Ö','ø-ÿ','a-z0-3']
  for i in range(30):

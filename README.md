@@ -100,6 +100,8 @@ resolved commit in `eigs.lock.json`. Then `import regex` in your code.
 
 ## Usage
 
+The Unicode tables are regenerated with `python tools/gen_unicode_categories.py`. The generator downloads Unicode 15.0 `UnicodeData.txt` and `CaseFolding.txt` into the gitignored `.cache/ucd/15.0.0/` directory, rejects missing downloads or SHA-256 mismatches, and writes the pinned URLs and hashes into both generated assets; the upstream text files are not redistributed. Compound character classes containing `\p{...}` and Unicode categories beyond the documented set remain excluded pending issue #38.
+
 ```
 import regex
 
