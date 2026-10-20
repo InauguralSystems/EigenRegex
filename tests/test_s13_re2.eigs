@@ -1,9 +1,10 @@
 import regex
 load_file of "tests/re2_expected.eigs"
 failures is 0
-agree is {"boundary":0,"casefold":0,"named":0}
-patterns is {"boundary":{},"casefold":{},"named":{}}
-subjects is {"boundary":0,"casefold":0,"named":0}
+agree is {"boundary":0,"casefold":0,"named":0,"property_letters":0,"property_numbers":0,"property_psz":0}
+patterns is {"boundary":{},"casefold":{},"named":{},"property_letters":{},"property_numbers":{},"property_psz":{}}
+subjects is {"boundary":0,"casefold":0,"named":0,"property_letters":0,"property_numbers":0,"property_psz":0}
+programs is {}
 define check(label, actual, expected) as:
     if actual == expected:
         print of (label + " OK")
@@ -11,7 +12,9 @@ define check(label, actual, expected) as:
         print of (label + " FAIL")
         failures is failures + 1
 for c in re2_diff_cases:
-    local got is regex.re_search_named of [regex.re_compile of c.pattern, c.subject]
+    if not (has_key of [programs,c.pattern]):
+        programs[c.pattern] is regex.re_compile of c.pattern
+    local got is regex.re_search_named of [programs[c.pattern], c.subject]
     local spans is null
     local named is {}
     if got != null:
@@ -21,22 +24,29 @@ for c in re2_diff_cases:
         agree[c.feature] is agree[c.feature] + 1
     else:
         failures is failures + 1
-        print of ("differ feature=" + c.feature + " pattern=" + c.pattern + " FAIL")
+        print of ("differ feature=" + c.feature + " pattern=" + c.pattern + " subject=" + c.subject + " FAIL")
     patterns[c.feature][c.pattern] is 1
     subjects[c.feature] is subjects[c.feature] + 1
-for feature in ["boundary","casefold","named"]:
+for feature in ["boundary","casefold","named","property_letters","property_numbers","property_psz"]:
     print of ("feature=" + feature + " patterns=" + (str of (len of (keys of patterns[feature]))) + " subjects=" + (str of subjects[feature]) + " agree=" + (str of agree[feature]) + " differ=" + (str of (subjects[feature] - agree[feature])))
 check of ["boundary at start",regex.re_search of [regex.re_compile of "\\bcat","cat"],[0,3]]
 check of ["boundary at end",regex.re_search of [regex.re_compile of "cat\\b","cat"],[0,3]]
 check of ["boundary beside non-ASCII letter",regex.re_search of [regex.re_compile of "é\\b","é"],null]
 check of ["casefold non-ASCII letter",regex.re_match of [regex.re_compile of "(?i)Ä","ä"],1]
+check of ["casefold sigma trio",regex.re_match of [regex.re_compile of "(?i)σ","ς"],1]
 check of ["duplicate group names refused",regex.re_compile of "(?P<x>a)(?P<x>b)",null]
 check of ["duplicate group name diagnostic",regex.re_compile_error of null,"duplicate group name: x"]
 check of ["named group inside alternation",(regex.re_search_named of [regex.re_compile of "(q|(?P<x>a))","a"]).groups.x,[0,1]]
 check of ["named group inside repeat",(regex.re_search_named of [regex.re_compile of "(?P<x>a)*","aaa"]).groups.x,[2,3]]
 for cat in ["L","Lu","Ll","Lt","Lm","Lo","N","Nd","Nl","No","P","S","Z"]:
-    check of ["unicode property unsupported " + cat,regex.re_compile of ("\\p{" + cat + "}"),null]
-    check of ["unicode property negation unsupported " + cat,regex.re_compile of ("\\P{" + cat + "}"),null]
-print of ("feature=unicode_categories patterns=26 subjects=" + (str of (len of unicode_category_oracle)) + " agree=0 differ=" + (str of (len of unicode_category_oracle)) + " documented=GAPS.md")
+    local t0 is monotonic_ms of null
+    local cp is regex.re_compile of ("\\p{" + cat + "}")
+    local elapsed is (monotonic_ms of null) - t0
+    print of ("unicode category=" + cat + " program_size=" + (str of (len of cp.code)) + " compile_ms=" + (str of elapsed))
+    if cp == null:
+        print of ("unicode property " + cat + " FAIL")
+        failures is failures + 1
+    else:
+        print of ("unicode property " + cat + " OK")
 print of "==="
 print of ("failures: " + (str of failures))

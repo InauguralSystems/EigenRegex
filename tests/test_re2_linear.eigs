@@ -1,26 +1,33 @@
 import regex
 failures is 0
+define sample(p, s) as:
+    local t0 is monotonic_ms of null
+    for k in range of 4:
+        regex.re_search of [p, s]
+    return (monotonic_ms of null) - t0
 define timed(pat, n) as:
     local s is ""
     for i in range of n:
         s is s + "a"
     local p is regex.re_compile of pat
-    local baseline is ""
-    for i in range of 1000:
-        baseline is baseline + "a"
-    local t0 is monotonic_ms of null
-    regex.re_search of [p, baseline]
-    for k in range of 4:
-        regex.re_search of [p, s]
-    return (monotonic_ms of null) - t0
+    # Compile and VM warm-up are deliberately outside every measured window.
+    regex.re_search of [p, s]
+    local ms is sample of [p, s]
+    # Minimum of four trials reduces scheduler/noise spikes without masking
+    # super-linear work: every trial searches exactly the same size-n input.
+    for trial in range of 3:
+        local candidate is sample of [p, s]
+        if candidate < ms:
+            ms is candidate
+    return ms
 for row in [["boundary","(\\b|a|aa)*z"],["casefold","(?i)(a|aa)*Z"],["named","(?P<x>a|aa)*z"]]:
     local prior is 0
-    for n in [125,250,500,1000]:
+    for n in [300,600,1200,2400]:
         local ms is timed of [row[1],n]
-        for trial in range of 2:
-            local candidate is timed of [row[1],n]
-            if candidate < ms:
-                ms is candidate
+        print of ("timing feature=" + row[0] + " size=" + (str of n) + " ms=" + (str of ms))
+        if n == 300 and ms < 50:
+            print of ("timer floor " + row[0] + " FAIL")
+            failures is failures + 1
         if prior > 0:
             local ratio is ms / prior
             print of ("timing feature=" + row[0] + " size=" + (str of n) + " ratio=" + (str of ratio))

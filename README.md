@@ -36,13 +36,12 @@ under `regex.*` and never collide with a consumer's globals.
 - ASCII word-boundary assertions `\b` and `\B` (RE2 semantics: Unicode
   letters are non-word characters)
 - Unicode-aware simple case folding via `(?i)` or `re_compile([pattern, "i"])`
+- Unicode general-category properties `\p{L}`, `\P{Nd}`, etc. (Unicode 15.0.0, generated from Python `unicodedata`)
 
 ## Not supported
 
 - Backreferences (would force backtracking; out of scope for Pike-VM)
 - Lookahead / lookbehind
-- Unicode classes (`\p{...}`): the VM currently advances one UTF-8 byte per
-  Pike step; correct scalar-width classes require a future code-point scheduler
 
 ## Layout
 
