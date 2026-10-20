@@ -2,7 +2,7 @@
 """Generate EigenRegex Unicode tables exclusively from pinned UCD 15.0 files."""
 import hashlib,json,urllib.request
 from pathlib import Path
-CATEGORIES=("L","Lu","Ll","Lt","Lm","Lo","N","Nd","Nl","No","P","S","Z")
+CATEGORIES=("L","Lu","Ll","Lt","Lm","Lo","N","Nd","Nl","No","M","Pc","P","S","Z")
 ROOT=Path(__file__).resolve().parents[1]; UCD=ROOT/'.cache'/'ucd'/'15.0.0'; VERSION='15.0.0'
 URLS={n:f"https://www.unicode.org/Public/15.0.0/ucd/{n}" for n in ('UnicodeData.txt','CaseFolding.txt')}
 SHA256={'UnicodeData.txt':'806e9aed65037197f1ec85e12be6e8cd870fc5608b4de0fffd990f689f376a73','CaseFolding.txt':'cdd49e55eae3bbf1f0a3f6580c974a0263cb86a6a08daa10fbf705b4808a56f7'}
