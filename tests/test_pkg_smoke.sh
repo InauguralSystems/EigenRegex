@@ -44,9 +44,8 @@ print of ["search", $PKG_NAME.re_search of [prog, "  abc7  "]]
 print of ["find_all_n", len of ($PKG_NAME.re_find_all of [prog, "a1 b2 c3"])]
 dp is $PKG_NAME.re_compile of "[0-9]+"
 print of ["replace", $PKG_NAME.re_replace of [dp, "a1 b22 c", "#"]]
-print of ["compat_find", $PKG_NAME.compat_find of ["a1 b2", "[a-z][0-9]"]]
 ks is keys of $PKG_NAME
-print of ["surface_ok", (has of [ks, "re_compile"]) and (has of [ks, "compat_match"])]
+print of ["surface_ok", (has of [ks, "re_compile"]) and (has of [ks, "re_replace"])]
 print of ["_peek_private", 1 - (has of [ks, "_peek"])]
 print of ["_rx_parse_private", 1 - (has of [ks, "_rx_parse"])]
 print of ["pos_intact", pos == 99]
@@ -63,7 +62,6 @@ for expected in \
     '["match", 1]' \
     '["find_all_n", 3]' \
     '["replace", "a# b# c"]' \
-    '["compat_find", ["a1", "b2"]]' \
     '["surface_ok", 1]' \
     '["_peek_private", 1]' \
     '["_rx_parse_private", 1]' \

@@ -50,7 +50,6 @@ Each entry should name the gap, the workaround used, and a thought on the upstre
 ### `regex_match` builtin changed non-participating-group shape between v0.30.0 and v0.32.0 — OBSERVED 2026-07-24
 - **Encountered:** running S8's shim-vs-builtin differential against a v0.32.0 runtime while packaging for `import` (#13). Suite is green on the CI-pinned v0.30.0; the single `diff match (a)|(b)` case fails only on v0.32.0.
 - **Symptom:** the libc-backed `regex_match` changed how it reports non-participating capture groups.
-  - v0.30.0: `regex_match of ["b", "(a)|(b)"]` → `["b"]` — truncates at the first unset group (the shape `lib/regex_compat.eigs`'s header documents and mirrors).
+  - v0.30.0: `regex_match of ["b", "(a)|(b)"]` → `["b"]` — truncates at the first unset group.
   - v0.32.0: `regex_match of ["b", "(a)|(b)"]` → `["b", null, "b"]` — emits `null` for the unset group and keeps positional slots. (`"a"` case: `["a","a"]` → `["a","a",null]`.)
-- **Impact:** not an EigenRegex bug — the Pike-VM `compat_match` still truncates, matching v0.30.0. But bumping `EIGS_REF` to v0.32.0+ will break the S8 differential, and any consumer that indexed the builtin's result positionally saw its length/contents change under them.
-- **Upstream question:** is the null-fill intentional (arguably more correct — positional groups are preserved) or a regression? If intentional, it's a breaking builtin-shape change worth a CHANGELOG note; `compat_match` should then be updated to null-fill too (and the compat header's "STOPS at the first non-participating group" line corrected) when EigenRegex moves onto that runtime.
+- **Impact:** any consumer that indexed the builtin's result positionally saw its length/contents change under them.

@@ -1,0 +1,1 @@
+- Remove the unused `compat_match`, `compat_find`, and `compat_replace` wrappers because their promised libc ERE semantics had drifted; use the span-shaped `re_*` API instead (#40).
