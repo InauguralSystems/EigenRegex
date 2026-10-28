@@ -55,10 +55,19 @@ done
 
 aa1=$(ir_run CALL 0 128 aa-1) || fail=1
 aa2=$(ir_run CALL 0 128 aa-2) || fail=1
-if [ -n "$aa1" ] && [ "$aa1" = "$aa2" ]; then
-    echo "A/A feature=boundary size=128 Ir=$aa1/$aa2 identical OK"
+# A/A proves the instrument is stable enough for the [1.70, 2.35] ratio bounds.
+# Exact equality is too strict: a hosted runner moved 2 of 114,423,910
+# instructions between identical runs (EigenRegex #56's CI). Allow 0.01%.
+if [ -n "$aa1" ] && [ -n "$aa2" ]; then
+    aa_diff=$(( aa1 > aa2 ? aa1 - aa2 : aa2 - aa1 ))
+    if [ $(( aa_diff * 10000 )) -le "$aa1" ]; then
+        echo "A/A feature=boundary size=128 Ir=$aa1/$aa2 diff=$aa_diff within 0.01% OK"
+    else
+        echo "A/A feature=boundary size=128 Ir=$aa1/$aa2 diff=$aa_diff above 0.01% FAIL"
+        fail=1
+    fi
 else
-    echo "A/A feature=boundary size=128 Ir=$aa1/$aa2 identical FAIL"
+    echo "A/A feature=boundary size=128 Ir=$aa1/$aa2 measurement missing FAIL"
     fail=1
 fi
 
