@@ -1,0 +1,57 @@
+import regex
+load_file of "tests/lookaround_expected.eigs"
+
+failures is 0
+seen_patterns is {}
+seen_names is {}
+accepted is 0
+refused is 0
+for c in lookaround_cases:
+    seen_patterns[c.pattern] is 1
+    seen_names[c.name] is 1
+    local prog is regex.re_compile of c.pattern
+    local ok is 0
+    if c.accepted == false:
+        if prog == null and (regex.re_compile_error of null) != "":
+            ok is 1
+        refused is refused + 1
+    else:
+        accepted is accepted + 1
+        if prog != null:
+            local got is null
+            if c.operation == "search":
+                got is regex.re_search of [prog,c.subject]
+            elif c.operation == "find_all":
+                got is regex.re_find_all of [prog,c.subject]
+            else:
+                got is regex.re_replace of [prog,c.subject,"#"]
+            if got == c.expected:
+                ok is 1
+    if ok == 0:
+        failures is failures + 1
+        print of ("lookaround case=" + c.name + " op=" + c.operation + " pattern=" + c.pattern + " FAIL")
+
+for contract in [["(?<=(a))Z","capture group inside lookbehind"],["(?<=(?P<x>a))Z","named capture group inside lookbehind"],["(?<=a)+","quantified lookbehind"],["(?=a)b","unsupported lookahead"],["(?!a)b","unsupported lookahead"]]:
+    local refused_program is regex.re_compile of contract[0]
+    if refused_program == null and (regex.re_compile_error of null) == contract[1]:
+        print of ("lookaround compile contract " + contract[1] + " OK")
+    else:
+        failures is failures + 1
+        print of ("lookaround compile contract " + contract[1] + " FAIL")
+
+local case_count is len of lookaround_cases
+local pattern_count is len of (keys of seen_names)
+if case_count < 1662 or pattern_count < 216:
+    failures is failures + 1
+    print of ("lookaround fixture population cases=" + (str of case_count) + " patterns=" + (str of pattern_count) + " FAIL")
+else:
+    print of ("lookaround fixture population cases=" + (str of case_count) + " patterns=" + (str of pattern_count) + " OK")
+if lookaround_floors.agree_patterns < 120 or lookaround_floors.v8_only_patterns < 40 or lookaround_floors.positive_lookbehind < 30 or lookaround_floors.negative_lookbehind < 30 or lookaround_floors.refusals < 20:
+    failures is failures + 1
+    print of "lookaround fixture floors FAIL"
+else:
+    print of "lookaround fixture floors OK"
+if failures == 0:
+    print of ("lookaround full fixture accepted=" + (str of accepted) + " refused=" + (str of refused) + " mismatches=0 OK")
+else:
+    print of ("lookaround full fixture mismatches=" + (str of failures) + " FAIL")

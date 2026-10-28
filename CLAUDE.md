@@ -119,14 +119,14 @@ Literals, escaped metachars (`\.` `\*` …), RE2 control/hex escapes,
 `* + ?` and `{n} {n,} {n,m}` (all greedy + lazy), `.`, `[abc]`,
 `[^abc]`, `[a-z]`, POSIX `[[:alpha:]]`-style classes, `\w \W \s \S`
 including `\d`, `^`, `$`, numbered capture groups, `re_replace`.
-Unknown escapes and all backreference spellings are compile errors.
+Unknown escapes and all backreference spellings are compile errors. Captureless
+`(?<=...)` and `(?<!...)` lookbehind is supported, including unbounded bodies.
 
 ## Out of scope
 
 - Backreferences (force backtracking — incompatible with Pike-VM
   guarantee)
-- Lookahead / lookbehind; `\b` word boundaries (would need text access
-  in the VM's epsilon-closure — doable, deferred until something needs it)
+- Lookahead (deferred to issue 36b)
 - Named groups
 - Unicode classes (`\p{...}`)
 - Case-insensitive flags (yet)

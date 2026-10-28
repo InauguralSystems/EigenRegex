@@ -53,6 +53,35 @@ for row in 0 1 2; do
     done
 done
 
+echo "Lookbehind Cachegrind Ir gate: limits 1.60 <= doubling ratio <= 2.25"
+for row in 3 4 5 6; do
+    case $row in
+        3) feature=lookbehind-positive ;;
+        4) feature=lookbehind-negative ;;
+        5) feature=lookbehind-alternation ;;
+        6) feature=lookbehind-find-all ;;
+    esac
+    prior=
+    for n in 256 512 1024 2048; do
+        call=$(ir_run CALL "$row" "$n" "lb-call-$row-$n") || { echo "cachegrind CALL feature=$feature size=$n FAIL"; fail=1; continue; }
+        base=$(ir_run BASE "$row" "$n" "lb-base-$row-$n") || { echo "cachegrind BASE feature=$feature size=$n FAIL"; fail=1; continue; }
+        delta=$((call - base))
+        ratio=-
+        if [ "$delta" -le 0 ]; then
+            echo "work feature=$feature size=$n delta_Ir=$delta FAIL"
+            fail=1
+        elif [ -n "$prior" ]; then
+            ratio=$(awk -v now="$delta" -v old="$prior" 'BEGIN { printf "%.3f", now / old }')
+            if ! awk -v r="$ratio" 'BEGIN { exit !(r >= 1.60 && r <= 2.25) }'; then
+                echo "ratio feature=$feature size=$n value=$ratio limits=[1.60,2.25] FAIL"
+                fail=1
+            fi
+        fi
+        printf '%-24s %7d %14d %14d %14d %7s\n' "$feature" "$n" "$call" "$base" "$delta" "$ratio"
+        prior=$delta
+    done
+done
+
 aa1=$(ir_run CALL 0 128 aa-1) || fail=1
 aa2=$(ir_run CALL 0 128 aa-2) || fail=1
 # A/A proves the instrument is stable enough for the [1.70, 2.35] ratio bounds.
