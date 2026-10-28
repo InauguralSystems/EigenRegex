@@ -1,0 +1,6 @@
+{
+  "D1": {"construct": "$ before a final newline", "side": "v8", "neutral": "$ -> empty assertion removal", "case": "divergence_d1"},
+  "D2": {"construct": ". against CR, U+2028, or U+2029", "side": "python", "neutral": ". -> literal x", "case": "divergence_d2"},
+  "D3": {"construct": "ASCII shorthand/boundary semantics on non-ASCII", "side": "v8", "neutral": "\\w -> literal x", "case": "divergence_d3"},
+  "D4": {"construct": "empty-match resume", "side": "v8", "neutral": "empty alternative -> literal x", "case": "divergence_d4"}
+}
