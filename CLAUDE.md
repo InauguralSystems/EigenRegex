@@ -120,13 +120,12 @@ Literals, escaped metachars (`\.` `\*` …), RE2 control/hex escapes,
 `[^abc]`, `[a-z]`, POSIX `[[:alpha:]]`-style classes, `\w \W \s \S`
 including `\d`, `^`, `$`, numbered capture groups, `re_replace`.
 Unknown escapes and all backreference spellings are compile errors. Captureless
-`(?<=...)` and `(?<!...)` lookbehind is supported, including unbounded bodies.
+Captureless lookbehind and lookahead are supported, including unbounded and nested bodies.
 
 ## Out of scope
 
 - Backreferences (force backtracking — incompatible with Pike-VM
   guarantee)
-- Lookahead (deferred to issue 36b)
 - Named groups
 - Unicode classes (`\p{...}`)
 - Case-insensitive flags (yet)

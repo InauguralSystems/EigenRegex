@@ -38,8 +38,8 @@ tables on first use.
 - Capturing groups (numbered and `(?P<name>...)` named groups)
 - ASCII word-boundary assertions `\b` and `\B` (RE2 semantics: Unicode
   letters are non-word characters)
-- Captureless positive and negative lookbehind, `(?<=...)` and `(?<!...)`,
-  including variable-width and unbounded bodies
+- Captureless positive and negative lookbehind (`(?<=...)`, `(?<!...)`) and
+  lookahead (`(?=...)`, `(?!...)`), including variable-width, unbounded, and nested bodies
 - Unicode-aware simple case folding via `(?i)` or `re_compile([pattern, "i"])`
 - Unicode general-category properties `\p{L}`, `\P{Nd}`, etc. (Unicode 15.0.0, generated from pinned UCD files)
 
@@ -51,8 +51,7 @@ oracle. Unicode categories and simple case folds come from the pinned Unicode
 SHA-256 digests are enforced by the generator.
 
 - Backreferences (would force backtracking; out of scope for Pike-VM)
-- Lookahead (`(?=...)`, `(?!...)`)
-- Captures inside lookbehind and quantified lookbehind assertions
+- Captures inside lookarounds, backreferences, and quantified lookaround assertions
 
 ## Layout
 
@@ -77,7 +76,7 @@ uses the `re_*` prefix so both can be used in the same script:
 | backend | libc POSIX ERE in C | Pike-VM in EigenScript |
 | speed | native, fast | interpreted, ~100–1000× slower |
 | worst case | can backtrack catastrophically | guaranteed O(n·m) |
-| features | POSIX ERE + GNU `\w \s \b` | ERE parity + RE2 ASCII `\d \w \s` (and complements), `\b`, named groups, case folding; lazy quantifiers extra |
+| features | POSIX ERE + GNU `\w \s \b` | ERE parity + RE2 ASCII `\d \w \s` (and complements), `\b`, named groups, case folding, lookaround; lazy quantifiers extra |
 | match rule | leftmost-longest (POSIX) | leftmost-first (Pike-VM priority) |
 | return shape | substring list | positional spans `[s, e, ...]` |
 
@@ -127,3 +126,15 @@ all is regex.re_find_all of [prog, "aaabaaab"]         # → [[0,3], [4,7]]
 prog is regex.re_compile of "\\d{2,4}"                 # RE2 ASCII digit shorthand
 out is regex.re_replace of [prog, "year 2026!", "Y"]   # → "year Y!"
 ```
+
+### Lookaround oracle divergences
+
+The differential fixture uses these explicit precedence rules when CPython and
+V8 disagree. Neutralizing the named construct must make the oracles agree.
+
+| ID | Construct | Expected side |
+| --- | --- | --- |
+| D1 | `$` before a final newline | V8 |
+| D2 | `.` against CR, U+2028, or U+2029 | Python |
+| D3 | ASCII shorthand/boundary semantics on non-ASCII | V8 |
+| D4 | empty-match resume | V8 |

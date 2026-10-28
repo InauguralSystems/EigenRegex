@@ -597,27 +597,28 @@ define _parse_atom(st) as:
         local name is ""
         if (_peek of st) == "?":
             _advance of st
-            # Lookbehind is compiled as a captureless forward sub-automaton.
-            # Lookahead remains deliberately unsupported until issue 36b.
+            # Lookarounds are captureless sub-automata.  Nesting is allowed;
+            # the compiler orders inner tables before the tables that use them.
+            local look_kind is ""
+            local polarity is ""
             if (_peek of st) == "<" and ((_peek2 of st) == "=" or (_peek2 of st) == "!"):
                 _advance of st
-                local polarity is _advance of st
-                if st["in_lookbehind"] == 1:
-                    _rx_error is "nested lookaround in lookbehind is unsupported"
-                    return null
-                st["in_lookbehind"] is 1
-                local behind_inner is _parse_alt of st
-                st["in_lookbehind"] is 0
-                if behind_inner == null or (_peek of st) != ")":
+                polarity is _advance of st
+                look_kind is "lookbehind"
+            elif (_peek of st) == "=" or (_peek of st) == "!":
+                polarity is _advance of st
+                look_kind is "lookahead"
+            if look_kind != "":
+                st["in_lookaround"] is st["in_lookaround"] + 1
+                local look_inner is _parse_alt of st
+                st["in_lookaround"] is st["in_lookaround"] - 1
+                if look_inner == null or (_peek of st) != ")":
                     return null
                 _advance of st
                 local positive is 1
                 if polarity == "!":
                     positive is 0
-                return ["lookbehind", positive, behind_inner]
-            if (_peek of st) == "=" or (_peek of st) == "!":
-                _rx_error is "unsupported lookahead"
-                return null
+                return [look_kind, positive, look_inner]
             if (_peek of st) == ":":
                 _advance of st
                 local noncapturing_inner is _parse_alt of st
@@ -656,11 +657,11 @@ define _parse_atom(st) as:
             if valid_name == 0:
                 _rx_error is "invalid named capture identifier: " + name
                 return null
-        if st["in_lookbehind"] == 1:
+        if st["in_lookaround"] > 0:
             if name == "":
-                _rx_error is "capture group inside lookbehind"
+                _rx_error is "capture group inside lookaround"
             else:
-                _rx_error is "named capture group inside lookbehind"
+                _rx_error is "named capture group inside lookaround"
             return null
         local idx is st["groups"]
         st["groups"] is st["groups"] + 1
@@ -851,8 +852,8 @@ define _parse_quant(st) as:
     if atom == null:
         return null
     local c is _peek of st
-    if atom[0] == "lookbehind" and (c == "*" or c == "+" or c == "?" or c == "{"):
-        _rx_error is "quantified lookbehind"
+    if (atom[0] == "lookbehind" or atom[0] == "lookahead") and (c == "*" or c == "+" or c == "?" or c == "{"):
+        _rx_error is "quantified lookaround"
         return null
     if atom[0] == "flag" and (c == "*" or c == "+" or c == "?" or c == "{"):
         _rx_error is "standalone flag is not quantifiable"
@@ -926,7 +927,7 @@ define _rx_parse(pattern) as:
     st["groups"] is 0
     st["names"] is {}
     st["icase"] is 0
-    st["in_lookbehind"] is 0
+    st["in_lookaround"] is 0
     local ast is _parse_alt of st
     if ast == null:
         return null
@@ -959,9 +960,57 @@ define _emit(prog, inst) as:
     append of [prog, inst]
     return idx
 
+# Reverse an AST for the backward lookahead pass.  Byte sequences are
+# reversed structurally rather than reversing the UTF-8 subject.
+define _reverse_ast(node) as:
+    local tag is node[0]
+    if tag == "lit":
+        local out is ["reverse_lit", node[1], node[2]]
+        if (len of node) > 3:
+            append of [out, node[3]]
+        return out
+    if tag == "concat":
+        local children is []
+        local i is (len of node[1]) - 1
+        loop while i >= 0:
+            append of [children, _reverse_ast of node[1][i]]
+            i is i - 1
+        return ["concat", children]
+    if tag == "alt":
+        local branches is []
+        for branch in node[1]:
+            append of [branches, _reverse_ast of branch]
+        return ["alt", branches]
+    if tag == "star" or tag == "star_lazy" or tag == "plus" or tag == "plus_lazy" or tag == "quest" or tag == "quest_lazy":
+        return [tag, _reverse_ast of node[1]]
+    if tag == "anchor":
+        return node
+    if tag == "lookahead" or tag == "lookbehind":
+        return node
+    return node
+
 # ---- _compile_node: recursively emit for an AST node ----
 define _compile_node(node, prog) as:
     local tag is node[0]
+    if tag == "reverse_lit":
+        local variants is [node[2]]
+        if _rx_compile_icase == 1 or ((len of node) > 3 and node[3] == 1):
+            variants is _case_byte_variants of node[1]
+            if (len of variants) == 0:
+                variants is [node[2]]
+        local branches is []
+        for bytes in variants:
+            local atoms is []
+            local j is (len of bytes) - 1
+            loop while j >= 0:
+                append of [atoms, ["byte", bytes[j]]]
+                j is j - 1
+            append of [branches, ["concat", atoms]]
+        if (len of branches) == 1:
+            _compile_node of [branches[0], prog]
+        else:
+            _compile_alt of [branches, prog]
+        return 0
     if tag == "lit":
         local variants is [node[2]]
         if _rx_compile_icase == 1 or ((len of node) > 3 and node[3] == 1):
@@ -1035,13 +1084,16 @@ define _compile_node(node, prog) as:
         _compile_node of [node[2], prog]
         _emit of [prog, ["save", 2 * idx + 1]]
         return 0
-    if tag == "lookbehind":
+    if tag == "lookbehind" or tag == "lookahead":
+        local body is node[2]
+        if tag == "lookahead":
+            body is _reverse_ast of body
         local sub is []
-        _compile_node of [node[2], sub]
+        _compile_node of [body, sub]
         _emit of [sub, ["match"]]
-        local lb_index is len of _rx_compile_lookbehinds
-        append of [_rx_compile_lookbehinds, sub]
-        _emit of [prog, ["assert_lookbehind", lb_index, node[1]]]
+        local look_index is len of _rx_compile_lookarounds
+        append of [_rx_compile_lookarounds, [tag, sub]]
+        _emit of [prog, ["assert_lookaround", look_index, node[1]]]
         return 0
     # Unknown tag — emit nothing; later stages will extend.
     return 0
@@ -1158,11 +1210,11 @@ define _compile_alt(branches, prog) as:
 # VM can grab both pieces atomically; null patterns still propagate as null
 # from the parser, before we ever get here.
 _rx_compile_icase is 0
-_rx_compile_lookbehinds is []
+_rx_compile_lookarounds is []
 
 define _rx_compile_ast(parsed) as:
     _rx_compile_icase is 0
-    _rx_compile_lookbehinds is []
+    _rx_compile_lookarounds is []
     local prog is []
     _compile_node of [parsed["ast"], prog]
     _emit of [prog, ["match"]]
@@ -1179,7 +1231,7 @@ define _rx_compile_ast(parsed) as:
     out["n_slots"] is n_slots
     out["group_names"] is parsed["names"]
     out["icase"] is parsed["icase"]
-    out["lookbehinds"] is _rx_compile_lookbehinds
+    out["lookarounds"] is _rx_compile_lookarounds
     return out
 # ============================================================
 # EigenRegex — Pike-VM executor (with captures, S5)
@@ -1293,7 +1345,7 @@ define _clone_saves(saves) as:
 # Per-operation lookbehind result tables.  Each table has one boolean entry
 # per byte boundary.  Public operations prepare these once for the complete
 # subject; find_all/replace then carry the same tables across every resume.
-_rx_lookbehind_tables is []
+_rx_lookaround_tables is []
 
 # ---- _addthread: add (pc, saves) to thread list, following epsilon edges ----
 # mstart is the input position where this thread's match BEGAN. The anchored
@@ -1340,8 +1392,8 @@ define _addthread(tlist, seen, pc, saves, sp, n, prog, mstart, text) as:
         if sp == n:
             _addthread of [tlist, seen, pc + 1, saves, sp, n, prog, mstart, text]
         return 0
-    if op == "assert_lookbehind":
-        local succeeded is _rx_lookbehind_tables[inst[1]][sp]
+    if op == "assert_lookaround":
+        local succeeded is _rx_lookaround_tables[inst[1]][sp]
         if succeeded == inst[2]:
             _addthread of [tlist, seen, pc + 1, saves, sp, n, prog, mstart, text]
         return 0
@@ -1399,10 +1451,65 @@ define _lookbehind_table(prog, text) as:
         sp is sp + 1
     return table
 
-define _prepare_lookbehinds(prog, text) as:
-    _rx_lookbehind_tables is []
-    for sub in prog["lookbehinds"]:
-        append of [_rx_lookbehind_tables, _lookbehind_table of [sub, text]]
+# Run a reversed lookahead program from every scalar boundary in one
+# right-to-left pass.  UTF-8 bytes remain in their original subject order;
+# only the compiled byte paths are reversed.
+define _lookahead_table(prog, text) as:
+    local n is len of text
+    local plen is len of prog
+    local table is zeros of (n + 1)
+    local clist is []
+    local nlist is []
+    local cseen is zeros of plen
+    local nseen is zeros of plen
+    local sp is n
+    loop while sp >= 0:
+        if (_is_scalar_boundary of [text, sp]) == 1:
+            _addthread of [clist, cseen, 0, [], sp, n, prog, sp, text]
+        local i is 0
+        loop while i < (len of clist):
+            local t is clist[i]
+            local pc is t[0]
+            local inst is prog[pc]
+            local op is inst[0]
+            if op == "match":
+                table[sp] is 1
+            elif op == "char" and sp > 0 and (ord of (char_at of [text, sp - 1])) == inst[1]:
+                _addthread of [nlist, nseen, pc + 1, [], sp - 1, n, prog, t[2], text]
+            elif op == "any" and sp > 0 and (char_at of [text, sp - 1]) != "\n":
+                _addthread of [nlist, nseen, pc + 1, [], sp - 1, n, prog, t[2], text]
+            elif op == "class" and sp > 0:
+                local code is ord of (char_at of [text, sp - 1])
+                if inst[3] == 1:
+                    code is _fold_code of code
+                local inside is 0
+                for r in inst[2]:
+                    if code >= r[0] and code <= r[1]:
+                        inside is 1
+                    if inst[3] == 1 and code == (_fold_code of r[0]):
+                        inside is 1
+                local take is inside
+                if inst[1] == 1:
+                    take is 1 - inside
+                if take == 1:
+                    _addthread of [nlist, nseen, pc + 1, [], sp - 1, n, prog, t[2], text]
+            i is i + 1
+        clist is nlist
+        cseen is nseen
+        nlist is []
+        nseen is zeros of plen
+        sp is sp - 1
+    return table
+
+define _prepare_lookarounds(prog, text) as:
+    _rx_lookaround_tables is []
+    for item in prog["lookarounds"]:
+        local table is null
+        if item[0] == "lookahead":
+            table is _lookahead_table of [item[1], text]
+        else:
+            table is _lookbehind_table of [item[1], text]
+        append of [_rx_lookaround_tables, table]
     return 0
 
 # ---- _try_match_at: run the VM starting at sp=start ----
@@ -1714,7 +1821,7 @@ define re_match(args) as:
     local text is args[1]
     if prog == null:
         return 0
-    _prepare_lookbehinds of [prog, text]
+    _prepare_lookarounds of [prog, text]
     local caps is _rx_vm_run of [prog, text, 0, 1]
     if caps == null:
         return 0
@@ -1728,7 +1835,7 @@ define re_search(args) as:
     local text is args[1]
     if prog == null:
         return null
-    _prepare_lookbehinds of [prog, text]
+    _prepare_lookarounds of [prog, text]
     return _rx_vm_run of [prog, text, 0, 0]
 
 # ---- re_trace: instrumented leftmost search for the live tester (#18) ----
@@ -1744,7 +1851,7 @@ define re_trace(args) as:
     local text is args[1]
     if prog == null:
         return null
-    _prepare_lookbehinds of [prog, text]
+    _prepare_lookarounds of [prog, text]
     _rx_trace.on is 1
     _rx_trace.steps is []
     local r is _rx_vm_run of [prog, text, 0, 0]
@@ -1767,7 +1874,7 @@ define re_replace(args) as:
     local rep is args[2]
     if prog == null:
         return text
-    _prepare_lookbehinds of [prog, text]
+    _prepare_lookarounds of [prog, text]
     local out is ""
     local pos is 0
     local n is len of text
@@ -1799,7 +1906,7 @@ define re_find_all(args) as:
     local results is []
     if prog == null:
         return results
-    _prepare_lookbehinds of [prog, text]
+    _prepare_lookarounds of [prog, text]
     local pos is 0
     local n is len of text
     loop while pos <= n:

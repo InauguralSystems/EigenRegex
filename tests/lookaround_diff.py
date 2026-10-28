@@ -241,11 +241,7 @@ def main(out=OUT, l2out=None):
         vr=node["results"][len(rows)]; pr=py_eval(spec["pattern"],subject,op)
         oracle_accepted,oracle_value,oracle_tag=oracle_case(spec,subject,op,vr,pr)
         if oracle_tag in DIVERGENCES: disagreements.append(oracle_tag)
-        # 36a compatibility rule.  Part 36b-ii flips to oracle truth by deleting
-        # only this block; oracle_accepted/oracle_expected are already committed.
         accepted=oracle_accepted; value=oracle_value; tag=oracle_tag
-        if "(?=" in spec["pattern"] or "(?!" in spec["pattern"]:
-            accepted=False; value=None; tag="lookahead_refusal_36a"
         rows.append({"name":spec["name"],"pattern":spec["pattern"],"subject":subject,"operation":op,
                      "accepted":accepted,"tag":tag,"expected":value,
                      "oracle_accepted":oracle_accepted,"oracle_tag":oracle_tag,"oracle_expected":oracle_value})
@@ -320,12 +316,45 @@ def main(out=OUT, l2out=None):
     l2count=write_l2(l2out,node["v8"])
     print(f"fixture: cases={len(rows)} patterns={len(specs)} l2_cases={l2count} output={out}")
 
+def random_check(count, seed):
+    """H1: compare fresh, seeded lookahead cases with the V8 O2 oracle."""
+    import os, random, tempfile
+    rng=random.Random(seed); atoms=["a","b","[ab]",".","é"]
+    cases=[]
+    for i in range(count):
+        atom=rng.choice(atoms); quant=rng.choice(["","?","*","+"])
+        positive=bool(rng.randrange(2)); body=atom+quant+rng.choice(["","c"])
+        pattern=("(?=" if positive else "(?!")+body+")"+rng.choice(["","a","."])
+        subject="".join(rng.choice(["a","b","c","é"]) for _ in range(rng.randrange(0,9)))
+        cases.append((i,pattern,subject,rng.choice(["search","find_all","replace"])))
+    oracle=v8_eval([{"pattern":p,"subject":u,"op":op} for _,p,u,op in cases])["results"]
+    lines=["import regex","local failures is 0"]
+    for (i,p,u,op),want in zip(cases,oracle):
+        if not want["ok"]: raise SystemExit(f"random oracle refused case {i}: {p}")
+        call={"search":"regex.re_search of [prog,subject]","find_all":"regex.re_find_all of [prog,subject]","replace":"regex.re_replace of [prog,subject,\"#\"]"}[op]
+        lines += [f"local prog is regex.re_compile of {enc(p)}",f"local subject is {enc(u)}",f"local got is {call}",
+                  f"if got == {enc(want['value'])}:",f"    print of \"random case={i} O2 match OK\"","else:",f"    failures is failures + 1",f"    print of \"random case={i} O2 mismatch FAIL\""]
+    lines += ["if failures == 0:",f"    print of \"random seed={seed} cases={count} mismatches=0 OK\""]
+    root=HERE.parent
+    with tempfile.NamedTemporaryFile("w",suffix=".eigs",dir=root,delete=False) as f:
+        f.write("\n".join(lines)+"\n"); path=Path(f.name)
+    try:
+        binary=os.environ.get("EIGENSCRIPT","eigenscript")
+        run=subprocess.run([binary,str(path)],cwd=root,text=True,capture_output=True)
+        sys.stdout.write(run.stdout); sys.stderr.write(run.stderr)
+        if run.returncode or "FAIL" in run.stdout: raise SystemExit("random differential failed")
+    finally: path.unlink(missing_ok=True)
+
 if __name__=="__main__":
     ap=argparse.ArgumentParser(); ap.add_argument("--output",type=Path,default=OUT)
     ap.add_argument("--l2-output",type=Path,default=HERE / "lookaround_l2_expected.eigs")
     ap.add_argument("--check",type=Path,metavar="FIXTURE",help="regenerate privately and fail unless both committed fixtures are complete and current")
+    ap.add_argument("--random",type=int,metavar="N",help="run N fresh randomized cases against O2")
+    ap.add_argument("--seed",type=int,default=1)
     a=ap.parse_args()
-    if a.check:
+    if a.random is not None:
+        random_check(a.random,a.seed)
+    elif a.check:
         import tempfile
         with tempfile.TemporaryDirectory() as td:
             generated=Path(td)/"lookaround_expected.eigs"; generated_l2=Path(td)/"lookaround_l2_expected.eigs"
