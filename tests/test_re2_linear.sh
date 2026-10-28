@@ -82,6 +82,27 @@ for row in 3 4 5 6; do
     done
 done
 
+echo "Lookahead Cachegrind Ir gate: limits 1.60 <= doubling ratio <= 2.25"
+for row in 7 8 9 10 11 12; do
+    case $row in
+        7) feature=ahead_no_c ;; 8) feature=negative_find_all ;; 9) feature=nested_depth3 ;;
+        10) feature=ambiguous_alt ;; 11) feature=zero_width_replace ;; 12) feature=unicode_no_c ;;
+    esac
+    prior=
+    for n in 256 512 1024 2048; do
+        call=$(ir_run CALL "$row" "$n" "la-call-$row-$n") || { fail=1; continue; }
+        base=$(ir_run BASE "$row" "$n" "la-base-$row-$n") || { fail=1; continue; }
+        delta=$((call - base)); ratio=-
+        if [ "$delta" -le 0 ]; then fail=1
+        elif [ -n "$prior" ]; then
+            ratio=$(awk -v now="$delta" -v old="$prior" 'BEGIN { printf "%.3f", now / old }')
+            awk -v r="$ratio" 'BEGIN { exit !(r >= 1.60 && r <= 2.25) }' || fail=1
+        fi
+        printf '%-24s %7d %14d %14d %14d %7s\n' "$feature" "$n" "$call" "$base" "$delta" "$ratio"
+        prior=$delta
+    done
+done
+
 aa1=$(ir_run CALL 0 128 aa-1) || fail=1
 aa2=$(ir_run CALL 0 128 aa-2) || fail=1
 # A/A proves the instrument is stable enough for the [1.70, 2.35] ratio bounds.

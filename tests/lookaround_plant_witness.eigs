@@ -13,3 +13,7 @@ if plant == "all" or plant == "resume":
     verdict of ["resume-find-all",regex.re_find_all of [regex.re_compile of "(?<=a)","aa"],[[1,1],[2,2]]]
 if plant == "all" or plant == "negative":
     verdict of ["negative-polarity",regex.re_search of [regex.re_compile of "(?<!a)b","cb"],[1,2]]
+if plant == "all" or plant == "ahead-shift":
+    verdict of ["lookahead-byte-position",regex.re_search of [regex.re_compile of "a(?=b)","ab"],[0,1]]
+if plant == "all" or plant == "ahead-utf8":
+    verdict of ["lookahead-utf8-order",regex.re_search of [regex.re_compile of "x(?=é)","xé"],[0,1]]

@@ -9,12 +9,15 @@ else:
     local mode is a[0]
     local row is num of a[1]
     local n is num of a[2]
-    local names is ["boundary", "casefold", "named", "lookbehind-positive", "lookbehind-negative", "lookbehind-alternation", "lookbehind-find-all"]
-    local patterns is ["(\\b|a|aa)*z", "(?i)(a|aa)*Z", "(?P<x>a|aa)*z", "(?<=ba*)c", "(?<!ba*)c", "(?<=b(?:a|a)*)c", "(?<=a)"]
+    local names is ["boundary", "casefold", "named", "lookbehind-positive", "lookbehind-negative", "lookbehind-alternation", "lookbehind-find-all", "ahead_no_c", "negative_find_all", "nested_depth3", "ambiguous_alt", "zero_width_replace", "unicode_no_c"]
+    local patterns is ["(\\b|a|aa)*z", "(?i)(a|aa)*Z", "(?P<x>a|aa)*z", "(?<=ba*)c", "(?<!ba*)c", "(?<=b(?:a|a)*)c", "(?<=a)", "(?=a*c)", "(?!a*c)a", "(?=a*(?=a*(?=a*c)))", "(?=(?:a|a)*c)", "(?=a)", "(?=é*c)"]
     local expected is null
     local subject is ""
     for i in range of n:
-        subject is subject + "a"
+        if row == 12:
+            subject is subject + "é"
+        else:
+            subject is subject + "a"
     if row >= 3 and row <= 5:
         subject is subject + "c"
     local program is regex.re_compile of patterns[row]
@@ -24,13 +27,24 @@ else:
         print of ("compile feature=" + names[row] + " OK")
         local actual is expected
         if mode == "CALL":
-            if row == 6:
+            if row == 6 or row == 8:
                 actual is regex.re_find_all of [program, subject]
+            elif row == 11:
+                actual is regex.re_replace of [program, subject, "#"]
             else:
                 actual is regex.re_search of [program, subject]
         local correct is 0
         if mode == "BASE":
             correct is 1
+        elif row == 8:
+            correct is (len of actual) == n and actual[0] == [0,1] and actual[n - 1] == [n - 1,n]
+        elif row == 11:
+            local replacement_expected is ""
+            for i in range of n:
+                replacement_expected is replacement_expected + "#a"
+            correct is actual == replacement_expected
+        elif row >= 7:
+            correct is actual == null
         elif row == 4:
             correct is actual == [n,n + 1]
         elif row == 6:

@@ -31,7 +31,7 @@ for c in lookaround_cases:
         failures is failures + 1
         print of ("lookaround case=" + c.name + " op=" + c.operation + " pattern=" + c.pattern + " FAIL")
 
-for contract in [["(?<=(a))Z","capture group inside lookbehind"],["(?<=(?P<x>a))Z","named capture group inside lookbehind"],["(?<=a)+","quantified lookbehind"],["(?=a)b","unsupported lookahead"],["(?!a)b","unsupported lookahead"]]:
+for contract in [["(?<=(a))Z","capture group inside lookaround"],["(?<=(?P<x>a))Z","named capture group inside lookaround"],["(?<=a)+","quantified lookaround"],["(?=(a))b","capture group inside lookaround"],["(?!a)+","quantified lookaround"]]:
     local refused_program is regex.re_compile of contract[0]
     if refused_program == null and (regex.re_compile_error of null) == contract[1]:
         print of ("lookaround compile contract " + contract[1] + " OK")

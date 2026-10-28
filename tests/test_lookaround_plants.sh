@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Mutation self-test for the three issue-36a lookbehind failure modes.
+# Mutation self-test for the five issue-36 lookaround failure modes.
 set -u
 EIGS="${EIGENSCRIPT:-eigenscript}"
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
-tmp="${TMPDIR:-/tmp}/eigenregex-lookbehind-plants.$$"
+tmp="${TMPDIR:-/tmp}/eigenregex-lookaround-plants.$$"
 trap 'rm -rf "$tmp"' EXIT HUP INT TERM
 mkdir "$tmp" || exit 1
 fail=0
@@ -43,13 +43,15 @@ PY
     fi
 }
 
-plant seed seed 'if (_is_scalar_boundary of [text, sp]) == 1:' 'if sp == 0:'
-plant resume resume 'local results is []\n    if prog == null:\n        return results\n    _prepare_lookbehinds of [prog, text]\n    local pos is 0\n    local n is len of text\n    loop while pos <= n:\n        local caps is _rx_vm_run of [prog, text, pos, 0]' 'local results is []\n    if prog == null:\n        return results\n    _prepare_lookbehinds of [prog, text]\n    local pos is 0\n    local n is len of text\n    loop while pos <= n:\n        if pos > 0:\n            for table in _rx_lookbehind_tables:\n                table[pos] is 0\n        local caps is _rx_vm_run of [prog, text, pos, 0]'
+plant seed seed 'local sp is 0\n    loop while sp <= n:\n        if (_is_scalar_boundary of [text, sp]) == 1:' 'local sp is 0\n    loop while sp <= n:\n        if sp == 0:'
+plant resume resume 'local results is []\n    if prog == null:\n        return results\n    _prepare_lookarounds of [prog, text]\n    local pos is 0\n    local n is len of text\n    loop while pos <= n:\n        local caps is _rx_vm_run of [prog, text, pos, 0]' 'local results is []\n    if prog == null:\n        return results\n    _prepare_lookarounds of [prog, text]\n    local pos is 0\n    local n is len of text\n    loop while pos <= n:\n        if pos > 0:\n            for table in _rx_lookaround_tables:\n                table[pos] is 0\n        local caps is _rx_vm_run of [prog, text, pos, 0]'
 plant negative negative 'if succeeded == inst[2]:' 'if succeeded == 1:'
+plant ahead-shift ahead-shift 'table[sp] is 1\n            elif op == "char" and sp > 0' 'if sp > 0:\n                    table[sp - 1] is 1\n            elif op == "char" and sp > 0'
+plant ahead-utf8 ahead-utf8 'append of [atoms, ["byte", bytes[j]]]' 'append of [atoms, ["byte", bytes[(len of bytes) - 1 - j]]]'
 
 if [ "$fail" -eq 0 ]; then
-    echo "lookbehind plants PASS"
+    echo "lookaround plants PASS"
 else
-    echo "lookbehind plants FAIL"
+    echo "lookaround plants FAIL"
 fi
 exit "$fail"
