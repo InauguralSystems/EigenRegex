@@ -35,11 +35,6 @@ libc-POSIX-backed builtins. EigenRegex prefixes its public API with
 | match rule     | leftmost-longest (POSIX) | leftmost-first (Pike-VM priority) |
 | return shape   | substring list      | positional spans `[s, e, ...]` |
 
-The namespaced `regex.compat_*` functions re-expose the builtins' exact
-shapes on top of the Pike VM (for freestanding/WASM); divergences are
-documented in the compat section of `regex.eigs` — chiefly
-leftmost-longest vs leftmost-first, and no `\b`. Alias them to the bare
-builtin names where libc regex is gone: `regex_match is regex.compat_match`.
 
 **Pick the builtin for hot paths; pick `re_*` when you need a linear
 worst-case guarantee or libc isn't available** (e.g. the WASM
@@ -92,7 +87,7 @@ headlessly).
 - `eigs.json` is the package manifest (`name: regex`) — what makes
   `import regex` resolve this repo.
 - `tests/test_s{1..12}_*.eigs` are per-stage (literals → alt → repeat →
-  classes → anchors/groups → escapes/POSIX → intervals → compat/differential
+  classes → anchors/groups → escapes/POSIX → intervals → replacement
   → import-isolation → trace → tester core → tester UI); `tests/bench_search.eigs`
   is a manual bench, not a gate.
 - `GAPS.md` — upstream-gap ledger (fixed/open status per entry).
@@ -123,8 +118,7 @@ Literals, escaped metachars (`\.` `\*` …), concat, `|`, `( )`,
 `* + ?` and `{n} {n,} {n,m}` (all greedy + lazy), `.`, `[abc]`,
 `[^abc]`, `[a-z]`, POSIX `[[:alpha:]]`-style classes, `\w \W \s \S`
 (`\d` is a literal `d` — glibc ERE parity, verified against the
-oracle), `^`, `$`, numbered capture groups, `re_replace`, and the
-builtin-shaped compat layer.
+oracle), `^`, `$`, numbered capture groups, `re_replace`.
 
 ## Out of scope
 
@@ -152,19 +146,14 @@ builtin-shaped compat layer.
 ## Current state
 
 **Packaged for `import`:** one importable root `regex.eigs` + `eigs.json`
-(name `regex`). Consumers `import regex` and reach `regex.re_*` /
-`regex.compat_*`; every internal is `_`-private, so caller-globals
+(name `regex`). Consumers `import regex` and reach `regex.re_*`; every internal is `_`-private, so caller-globals
 collisions (issue #5, eigen-sheet's `_peek` clash in #13) are structurally
 impossible — not just mitigated by `local`. S9 is the import-isolation
 guard.
 
 **ERE parity:** escapes + POSIX classes (S6); `{n,m}` intervals desugared
 in the parser with no new VM ops — shared-subtree repetition gives glibc's
-last-repetition-wins capture semantics (S7); `re_replace` + the
-builtin-shaped compat layer, with a shim-vs-builtin differential suite that
-uses the libc builtins as the oracle (S8). The compat layer is the regex
-story for EigenScript's freestanding profile (EigenOS), where libc's
-regcomp is gone. Still open: feeding the engine's own source + tests into
+last-repetition-wins capture semantics (S7); `re_replace` (S8). Still open: feeding the engine's own source + tests into
 the iLambdaAi self-training corpus.
 
 **Search is a single linear pass:** each step seeds a lowest-priority start

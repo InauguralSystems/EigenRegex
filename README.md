@@ -11,12 +11,8 @@ Dual purpose:
 S8 complete (ERE parity). Working: literals, concat, `|`, `( )`, `* + ?`
 and `{n} {n,} {n,m}` (all greedy + lazy), `.`, `[abc]`, `[^abc]`, `[a-z]`,
 POSIX `[[:alpha:]]`-style classes, escapes (`\.` `\w` `\W` `\s` `\S`),
-`^`, `$`, numbered capture groups, `re_replace`, and a builtin-shaped
-compat layer (`regex.compat_*`) that mirrors the libc-backed
-`regex_match` / `regex_find` / `regex_replace` builtins.
-570 test checks across S1–S13 plus a consumer-shaped package smoke test,
-all green — including a differential suite run against the live libc
-builtins as the oracle.
+`^`, `$`, numbered capture groups, and `re_replace`.
+The test suite covers S1–S13 plus a consumer-shaped package smoke test.
 
 Packaged for `import` (issue #13): the package consists of `regex.eigs`,
 `eigs.json`, and the two lazily loaded data files `unicode_categories.eigs` and
@@ -64,9 +60,6 @@ SHA-256 digests are enforced by the generator.
   importable file. Public surface (namespaced under `regex.*`):
   - spans-shaped: `re_compile`, `re_match`, `re_search`, `re_find_all`,
     `re_replace`, `re_search_named`, `re_group_names`, `re_compile_error`
-  - builtin-shaped: `compat_match`, `compat_find`, `compat_replace`
-    (substring lists; alias to the bare builtin names where libc regex
-    is absent — see below)
   - everything else (`_rx_parse`, `_peek`, …) is `_`-private to the module
 - `unicode_categories.eigs` — lazy generated data for `\p{...}`
 - `unicode_casefold.eigs` — lazy generated data for `(?i)`
@@ -89,12 +82,8 @@ uses the `re_*` prefix so both can be used in the same script:
 | return shape | substring list | positional spans `[s, e, ...]` |
 
 Pick the builtin for hot paths; pick `re_*` when you need a linear-time
-guarantee or are running in a no-libc environment. For the latter, the
-namespaced `regex.compat_*` functions re-expose the builtins' exact
-shapes on top of the Pike VM; alias them to the bare builtin names where
-libc regex is gone (`regex_match is regex.compat_match`). Divergences —
-leftmost-first vs POSIX leftmost-longest — are documented in the
-compat section of `regex.eigs`.
+guarantee or are running in a no-libc environment. The `re_*` API uses
+positional spans rather than the builtins' substring-list return shape.
 
 ## Install
 
@@ -137,7 +126,4 @@ all is regex.re_find_all of [prog, "aaabaaab"]         # → [[0,3], [4,7]]
 
 prog is regex.re_compile of "\\d{2,4}"                 # RE2 ASCII digit shorthand
 out is regex.re_replace of [prog, "year 2026!", "Y"]   # → "year Y!"
-
-# Builtin-shaped drop-ins (substring lists, not spans):
-regex.compat_match of ["hello world", "h([a-z]+)"]     # → ["hello", "ello"]
 ```
