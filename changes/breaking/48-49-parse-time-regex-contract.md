@@ -1,0 +1,1 @@
+- Non-capturing groups now work, supported escapes have RE2 semantics, and backreferences or unknown escapes are compile-time errors instead of silently matching literals (#48, #49).

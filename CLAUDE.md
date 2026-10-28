@@ -114,11 +114,12 @@ headlessly).
 
 ## Supported features (stable)
 
-Literals, escaped metachars (`\.` `\*` …), concat, `|`, `( )`,
+Literals, escaped metachars (`\.` `\*` …), RE2 control/hex escapes,
+`\A`, `\z`, concat, `|`, `( )`, `(?: )`,
 `* + ?` and `{n} {n,} {n,m}` (all greedy + lazy), `.`, `[abc]`,
 `[^abc]`, `[a-z]`, POSIX `[[:alpha:]]`-style classes, `\w \W \s \S`
-(`\d` is a literal `d` — glibc ERE parity, verified against the
-oracle), `^`, `$`, numbered capture groups, `re_replace`.
+including `\d`, `^`, `$`, numbered capture groups, `re_replace`.
+Unknown escapes and all backreference spellings are compile errors.
 
 ## Out of scope
 
