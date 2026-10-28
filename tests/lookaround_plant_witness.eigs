@@ -1,0 +1,15 @@
+import regex
+local which is args of null
+local plant is which[0]
+define verdict(name, actual, expected) as:
+    if actual == expected:
+        print of (name + " OK")
+    else:
+        print of (name + " FAIL actual=" + (str of actual))
+if plant == "all" or plant == "seed":
+    verdict of ["seed-positive",regex.re_search of [regex.re_compile of "(?<=a)b","xab"],[2,3]]
+    verdict of ["seed-negative",regex.re_search of [regex.re_compile of "(?<!a)b","xab"],null]
+if plant == "all" or plant == "resume":
+    verdict of ["resume-find-all",regex.re_find_all of [regex.re_compile of "(?<=a)","aa"],[[1,1],[2,2]]]
+if plant == "all" or plant == "negative":
+    verdict of ["negative-polarity",regex.re_search of [regex.re_compile of "(?<!a)b","cb"],[1,2]]

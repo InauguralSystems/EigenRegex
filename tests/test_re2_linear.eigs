@@ -9,12 +9,14 @@ else:
     local mode is a[0]
     local row is num of a[1]
     local n is num of a[2]
-    local names is ["boundary", "casefold", "named"]
-    local patterns is ["(\\b|a|aa)*z", "(?i)(a|aa)*Z", "(?P<x>a|aa)*z"]
+    local names is ["boundary", "casefold", "named", "lookbehind-positive", "lookbehind-negative", "lookbehind-alternation", "lookbehind-find-all"]
+    local patterns is ["(\\b|a|aa)*z", "(?i)(a|aa)*Z", "(?P<x>a|aa)*z", "(?<=ba*)c", "(?<!ba*)c", "(?<=b(?:a|a)*)c", "(?<=a)"]
     local expected is null
     local subject is ""
     for i in range of n:
         subject is subject + "a"
+    if row >= 3 and row <= 5:
+        subject is subject + "c"
     local program is regex.re_compile of patterns[row]
     if program == null:
         print of ("compile feature=" + names[row] + " FAIL")
@@ -22,8 +24,20 @@ else:
         print of ("compile feature=" + names[row] + " OK")
         local actual is expected
         if mode == "CALL":
-            actual is regex.re_search of [program, subject]
-        if actual == expected:
-            print of ("result feature=" + names[row] + " size=" + (str of n) + " value=null OK")
+            if row == 6:
+                actual is regex.re_find_all of [program, subject]
+            else:
+                actual is regex.re_search of [program, subject]
+        local correct is 0
+        if mode == "BASE":
+            correct is 1
+        elif row == 4:
+            correct is actual == [n,n + 1]
+        elif row == 6:
+            correct is (len of actual) == n and actual[0] == [1,1] and actual[n - 1] == [n,n]
         else:
-            print of ("result feature=" + names[row] + " size=" + (str of n) + " expected=null actual=" + (str of actual) + " FAIL")
+            correct is actual == expected
+        if correct:
+            print of ("result feature=" + names[row] + " size=" + (str of n) + " OK")
+        else:
+            print of ("result feature=" + names[row] + " size=" + (str of n) + " actual=" + (str of actual) + " FAIL")

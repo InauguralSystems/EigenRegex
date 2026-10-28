@@ -38,6 +38,8 @@ tables on first use.
 - Capturing groups (numbered and `(?P<name>...)` named groups)
 - ASCII word-boundary assertions `\b` and `\B` (RE2 semantics: Unicode
   letters are non-word characters)
+- Captureless positive and negative lookbehind, `(?<=...)` and `(?<!...)`,
+  including variable-width and unbounded bodies
 - Unicode-aware simple case folding via `(?i)` or `re_compile([pattern, "i"])`
 - Unicode general-category properties `\p{L}`, `\P{Nd}`, etc. (Unicode 15.0.0, generated from pinned UCD files)
 
@@ -49,7 +51,8 @@ oracle. Unicode categories and simple case folds come from the pinned Unicode
 SHA-256 digests are enforced by the generator.
 
 - Backreferences (would force backtracking; out of scope for Pike-VM)
-- Lookahead / lookbehind
+- Lookahead (`(?=...)`, `(?!...)`)
+- Captures inside lookbehind and quantified lookbehind assertions
 
 ## Layout
 

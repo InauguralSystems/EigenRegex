@@ -46,6 +46,15 @@ else
 fi
 
 echo "---"
+# Issue #36a mutation witnesses for lookbehind state and polarity.
+if ! EIGENSCRIPT="$EIGS" bash tests/test_lookaround_plants.sh; then
+    echo "FAIL: test_lookaround_plants.sh"
+    fail=1
+else
+    echo "PASS: test_lookaround_plants.sh"
+fi
+
+echo "---"
 # Consumer-shaped package smoke: stage into eigs_modules/ and `import regex`.
 EIGENSCRIPT="$EIGS" bash "$(dirname "$0")/test_pkg_smoke.sh" >/tmp/pkg_smoke.$$ 2>&1
 smoke_rc=$?

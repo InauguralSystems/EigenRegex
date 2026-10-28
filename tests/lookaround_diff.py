@@ -121,6 +121,11 @@ def main(out=OUT):
       for subject in spec["subjects"]:
        for op in ops:
         vr=node["results"][len(rows)]; pr=py_eval(spec["pattern"],subject,op); cls=spec["oracle_class"]
+        # Part 36a-ii implements lookbehind only.  Keep lookahead-bearing
+        # corpus rows as explicit compile-time refusals until part 36b rather
+        # than silently omitting those oracle cases.
+        if "(?=" in spec["pattern"] or "(?!" in spec["pattern"]:
+            cls="refusal"
         if cls=="refusal": value=None; accepted=False; tag="refusal"
         elif cls=="python_only":
             if not pr["ok"]: raise SystemExit(f"Python-only case refused: {spec['name']}")
