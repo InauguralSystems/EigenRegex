@@ -19,6 +19,8 @@ RUN apt-get update \
         ca-certificates \
         git \
         valgrind \
+        python3 \
+        nodejs \
  && rm -rf /var/lib/apt/lists/*
 
 # Build + install EigenScript at the pinned tag onto /usr/local (binary on
@@ -29,4 +31,7 @@ RUN git clone --depth 1 --branch "${EIGS_REF}" \
  && make -C /tmp/eigs install PREFIX=/usr/local CC=gcc \
  && rm -rf /tmp/eigs
 
+# Oracle toolchain versions are pinned by the dedicated CI job. Debian's
+# packages keep the same commands available interactively in the devcontainer.
+# Fixture regeneration intended for commit uses Python 3.12.13 and Node 20.20.2.
 WORKDIR /workspaces/EigenRegex
