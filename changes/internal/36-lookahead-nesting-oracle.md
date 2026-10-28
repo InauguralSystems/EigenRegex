@@ -1,0 +1,1 @@
+- Extended the differential lookaround oracle with lookahead, nesting, full coverage floors, mutation adequacy, and future linearity expectations (#36).
