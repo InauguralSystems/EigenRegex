@@ -94,8 +94,8 @@ check of ["[:punct:] rejects letter", regex.re_match of [prog, "a"], 0]
 check of ["unknown class name errors", regex.re_compile of "[[:bogus:]]", null]
 check of ["unterminated posix class errors", regex.re_compile of "[[:alpha:]", null]
 
-# glibc-parity: backslash inside a bracket class is a literal backslash.
+# RE2 shorthand escapes retain their class meaning inside brackets.
 prog is regex.re_compile of "[\\w]"
-check of ["class backslash literal (glibc parity)", regex.re_match of [prog, "\\"], 1]
+check of ["[\\w] does not match backslash", regex.re_match of [prog, "\\"], 0]
 check of ["[\\w] matches w", regex.re_match of [prog, "w"], 1]
-check of ["[\\w] does not match a", regex.re_match of [prog, "a"], 0]
+check of ["[\\w] matches a", regex.re_match of [prog, "a"], 1]

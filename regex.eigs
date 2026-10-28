@@ -110,30 +110,62 @@ define _hex_digit_value(c) as:
         return cp - 87
     return -1
 
-# Consume a scalar class endpoint, including RE2's \x{...} notation.
-define _advance_class_scalar(st) as:
-    if (_peek of st) != "\\":
-        return _advance_scalar of st
-    _advance of st
-    if (_peek of st) != "x":
-        st["pos"] is st["pos"] - 1
-        return _advance_scalar of st
-    _advance of st
+# Consume a hexadecimal RE2 escape after the `x`.  Both exactly two hex
+# digits and the braced scalar form are accepted.
+define _parse_hex_escape(st) as:
     if (_peek of st) != "{":
-        return [-1, []]
+        local hi is _hex_digit_value of (_peek of st)
+        if hi < 0:
+            return -1
+        _advance of st
+        local lo is _hex_digit_value of (_peek of st)
+        if lo < 0:
+            return -1
+        _advance of st
+        return hi * 16 + lo
     _advance of st
     local cp is 0
     local digits is 0
     loop while (_peek of st) != "}":
         local value is _hex_digit_value of (_peek of st)
         if value < 0 or digits >= 6:
-            return [-1, []]
+            return -1
         cp is cp * 16 + value
         digits is digits + 1
         _advance of st
-    if digits == 0 or cp > 1114111:
-        return [-1, []]
+    if digits == 0 or cp > 1114111 or (cp >= 55296 and cp <= 57343):
+        return -1
     _advance of st
+    return cp
+
+# Consume a scalar class endpoint, including RE2 escapes.
+define _advance_class_scalar(st) as:
+    if (_peek of st) != "\\":
+        return _advance_scalar of st
+    _advance of st
+    local e is _advance of st
+    if e == "x":
+        return [_parse_hex_escape of st, []]
+    if e == "n":
+        return [10, []]
+    if e == "t":
+        return [9, []]
+    if e == "r":
+        return [13, []]
+    if e == "f":
+        return [12, []]
+    if e == "v":
+        return [11, []]
+    if e == "a":
+        return [7, []]
+    if e == "b":
+        return [8, []]
+    # RE2 permits escaping punctuation, but never treats an unknown
+    # alphanumeric escape as its literal character.
+    local cp is ord of e
+    if (cp >= 48 and cp <= 57) or (cp >= 65 and cp <= 90) or (cp >= 97 and cp <= 122):
+        _rx_error is "invalid escape sequence: \\" + e
+        return [-1, []]
     return [cp, []]
 
 # ---- _peek2: char after the current one, or "" ----
@@ -471,6 +503,21 @@ define _parse_class(st) as:
             for pr in property_ranges[1]:
                 append of [ranges, pr]
             continue
+        if c == "\\" and ((_peek2 of st) == "w" or (_peek2 of st) == "W" or (_peek2 of st) == "d" or (_peek2 of st) == "D" or (_peek2 of st) == "s" or (_peek2 of st) == "S"):
+            _advance of st
+            local shorthand is _advance of st
+            local shorthand_ranges is []
+            if shorthand == "w" or shorthand == "W":
+                shorthand_ranges is [[48, 57], [65, 90], [95, 95], [97, 122]]
+            elif shorthand == "d" or shorthand == "D":
+                shorthand_ranges is [[48, 57]]
+            else:
+                shorthand_ranges is [[9, 13], [32, 32]]
+            if shorthand == "W" or shorthand == "D" or shorthand == "S":
+                shorthand_ranges is _unicode_complement of shorthand_ranges
+            for sr in shorthand_ranges:
+                append of [ranges, sr]
+            continue
         if c == "[":
             if (_peek2 of st) == ":":
                 # POSIX class: [:name:] — expand to ranges and continue.
@@ -550,9 +597,19 @@ define _parse_atom(st) as:
         local name is ""
         if (_peek of st) == "?":
             _advance of st
+            if (_peek of st) == ":":
+                _advance of st
+                local noncapturing_inner is _parse_alt of st
+                if noncapturing_inner == null or (_peek of st) != ")":
+                    return null
+                _advance of st
+                return noncapturing_inner
             if (_peek of st) != "P":
                 return null
             _advance of st
+            if (_peek of st) == "=":
+                _rx_error is "unsupported backreference: (?P=...)"
+                return null
             if (_peek of st) != "<":
                 return null
             _advance of st
@@ -631,7 +688,39 @@ define _parse_atom(st) as:
             return _parse_unicode_property of [st, 0]
         if e == "P":
             return _parse_unicode_property of [st, 1]
-        # Any other escaped char is that literal char.
+        if e >= "1" and e <= "9":
+            _rx_error is "unsupported backreference: \\" + e
+            return null
+        if e == "k" and (_peek of st) == "<":
+            _rx_error is "unsupported backreference: \\k<...>"
+            return null
+        if e == "n":
+            return ["lit", 10, [10], st["icase"]]
+        if e == "t":
+            return ["lit", 9, [9], st["icase"]]
+        if e == "r":
+            return ["lit", 13, [13], st["icase"]]
+        if e == "f":
+            return ["lit", 12, [12], st["icase"]]
+        if e == "v":
+            return ["lit", 11, [11], st["icase"]]
+        if e == "a":
+            return ["lit", 7, [7], st["icase"]]
+        if e == "x":
+            local escaped_cp is _parse_hex_escape of st
+            if escaped_cp < 0:
+                _rx_error is "invalid hexadecimal escape: \\x"
+                return null
+            return _lower_scalar_class of [[[escaped_cp, escaped_cp]], 0, st["icase"]]
+        if e == "A":
+            return ["anchor", "start"]
+        if e == "z":
+            return ["anchor", "end"]
+        local escaped_ord is ord of e
+        if (escaped_ord >= 48 and escaped_ord <= 57) or (escaped_ord >= 65 and escaped_ord <= 90) or (escaped_ord >= 97 and escaped_ord <= 122):
+            _rx_error is "invalid escape sequence: \\" + e
+            return null
+        # RE2 accepts escaped punctuation as a literal.
         return ["lit", ord of e, [ord of e], st["icase"]]
     if _is_metachar of c:
         return null

@@ -1,7 +1,14 @@
 import regex
 load_file of "tests/re2_expected.eigs"
 failures is 0
-features is ["fullmatch","boundary","casefold","named","property_letters","property_numbers","property_psz","property_remaining","compound_property_class","empty_scalar_class","casefold_uncased","inline_flags","casefold_property","casefold_closure","casefold_class","negated_class_sets","unicode_shorthand","utf8_boundary_ranges","boundary_find_all","unicode_replace","unicode_match_start","standalone_flag_quantifier","capture_name_matrix"]
+features is ["fullmatch","boundary","casefold","named","property_letters","property_numbers","property_psz","property_remaining","compound_property_class","empty_scalar_class","casefold_uncased","inline_flags","casefold_property","casefold_closure","casefold_class","negated_class_sets","unicode_shorthand","utf8_boundary_ranges","boundary_find_all","unicode_replace","unicode_match_start","standalone_flag_quantifier","capture_name_matrix","noncapturing_group","backreference_refusal","supported_escape","unknown_escape_refusal"]
+feature_pattern_floors is {}
+for feature in features:
+    feature_pattern_floors[feature] is 1
+feature_pattern_floors["noncapturing_group"] is 30
+feature_pattern_floors["backreference_refusal"] is 10
+feature_pattern_floors["supported_escape"] is 15
+feature_pattern_floors["unknown_escape_refusal"] is 10
 agree is {}
 patterns is {}
 subjects is {}
@@ -82,6 +89,10 @@ for c in re2_diff_cases:
     patterns[c.feature][c.pattern] is 1
     subjects[c.feature] is subjects[c.feature] + 1
 for feature in features:
+    local pattern_count is len of (keys of patterns[feature])
+    if pattern_count < feature_pattern_floors[feature]:
+        failures is failures + 1
+        print of ("feature=" + feature + " pattern floor=" + (str of feature_pattern_floors[feature]) + " actual=" + (str of pattern_count) + " FAIL")
     print of ("feature=" + feature + " patterns=" + (str of (len of (keys of patterns[feature]))) + " subjects=" + (str of subjects[feature]) + " agree=" + (str of agree[feature]) + " differ=" + (str of (subjects[feature] - agree[feature])))
 check of ["boundary at start",regex.re_search of [regex.re_compile of "\\bcat","cat"],[0,3]]
 check of ["boundary at end",regex.re_search of [regex.re_compile of "cat\\b","cat"],[0,3]]
@@ -103,6 +114,10 @@ check of ["whole compound negation excludes letter",regex.re_match of [regex.re_
 check of ["whole compound negation admits punctuation",regex.re_match of [regex.re_compile of "[^\\p{L}_]","!"],1]
 check of ["empty scalar complement compiles",regex.re_compile of "[^\\x{0}-\\x{10FFFF}]" != null,true]
 check of ["empty scalar complement never matches",regex.re_search of [regex.re_compile of "[^\\x{0}-\\x{10FFFF}]","A"],null]
+check of ["backreference no longer matches literal digit",regex.re_compile of "(a)\\1",null]
+check of ["numbered backreference diagnostic",regex.re_compile_error of null,"unsupported backreference: \\1"]
+check of ["unsupported RE2 byte escape refused",regex.re_compile of "\\C",null]
+check of ["unsupported RE2 byte escape diagnostic",regex.re_compile_error of null,"invalid escape sequence: \\C"]
 for cat in ["L","Lu","Ll","Lt","Lm","Lo","N","Nd","Nl","No","M","Mn","Mc","Me","C","Cc","Cf","Cs","Co","Z","Zs","Zl","Zp","P","Pc","Pd","Ps","Pe","Pi","Pf","Po","S","Sm","Sc","Sk","So"]:
     local t0 is monotonic_ms of null
     local cp is regex.re_compile of ("\\p{" + cat + "}")

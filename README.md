@@ -23,7 +23,9 @@ tables on first use.
 
 ## Supported
 
-- Literal characters and escaped metacharacters (`\.` `\*` `\\` …)
+- Literal characters, non-capturing groups (`(?:…)`), escaped metacharacters
+  (`\.` `\*` `\\` …), RE2 control/hex escapes, and `\A` / `\z` anchors.
+- Unsupported escapes and backreferences are compile errors, never literals.
 - Concatenation
 - Alternation `|`
 - Grouping `( ... )`
