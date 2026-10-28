@@ -1,0 +1,1 @@
+- Unicode properties now support every RE2 general category, compound character classes, and empty complements (#38, #41).

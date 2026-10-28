@@ -1,7 +1,7 @@
 import regex
 load_file of "tests/re2_expected.eigs"
 failures is 0
-features is ["boundary","casefold","named","property_letters","property_numbers","property_psz","casefold_uncased","inline_flags","casefold_property","casefold_closure","casefold_class","negated_class_sets","unicode_shorthand","utf8_boundary_ranges","boundary_find_all","unicode_replace","unicode_match_start","standalone_flag_quantifier","capture_name_matrix","documented_exclusion"]
+features is ["boundary","casefold","named","property_letters","property_numbers","property_psz","property_remaining","compound_property_class","empty_scalar_class","casefold_uncased","inline_flags","casefold_property","casefold_closure","casefold_class","negated_class_sets","unicode_shorthand","utf8_boundary_ranges","boundary_find_all","unicode_replace","unicode_match_start","standalone_flag_quantifier","capture_name_matrix"]
 agree is {}
 patterns is {}
 subjects is {}
@@ -19,15 +19,6 @@ define check(label, actual, expected) as:
 for c in re2_diff_cases:
     if not (has_key of [programs,c.pattern]):
         programs[c.pattern] is regex.re_compile of c.pattern
-    if c.feature == "documented_exclusion":
-        if programs[c.pattern] == null:
-            agree[c.feature] is agree[c.feature] + 1
-        else:
-            failures is failures + 1
-            print of ("differ feature=" + c.feature + " pattern=" + c.pattern + " FAIL")
-        patterns[c.feature][c.pattern] is 1
-        subjects[c.feature] is subjects[c.feature] + 1
-        continue
     if c.compile_ok == false or (has_key of [c,"compile_only"]):
         local compiled is programs[c.pattern] != null
         if compiled == c.compile_ok:
@@ -35,6 +26,12 @@ for c in re2_diff_cases:
         else:
             failures is failures + 1
             print of ("differ feature=" + c.feature + " pattern=" + c.pattern + " compile acceptance FAIL")
+        patterns[c.feature][c.pattern] is 1
+        subjects[c.feature] is subjects[c.feature] + 1
+        continue
+    if programs[c.pattern] == null:
+        failures is failures + 1
+        print of ("differ feature=" + c.feature + " pattern=" + c.pattern + " unexpectedly failed to compile FAIL")
         patterns[c.feature][c.pattern] is 1
         subjects[c.feature] is subjects[c.feature] + 1
         continue
@@ -87,10 +84,13 @@ check of ["named identifier punctuation refused",regex.re_compile of "(?P<x-y>a)
 check of ["named identifier punctuation diagnostic",regex.re_compile_error of null,"invalid named capture identifier: x-y"]
 check of ["named identifier non-ASCII accepted",(regex.re_compile of "(?P<é>a)") != null,true]
 check of ["standalone flag cannot be repeated",regex.re_compile of "a(?i){3}b",null]
-check of ["compound property class refused",regex.re_compile of "[\\p{L}0-9]",null]
-check of ["unsupported mark category refused",regex.re_compile of "\\p{M}",null]
-check of ["unsupported separator subcategory refused",regex.re_compile of "\\p{Zs}",null]
-for cat in ["L","Lu","Ll","Lt","Lm","Lo","N","Nd","Nl","No","P","S","Z"]:
+check of ["compound property class matches digit",regex.re_match of [regex.re_compile of "[\\p{L}0-9]","7"],1]
+check of ["compound property class matches letter",regex.re_match of [regex.re_compile of "[\\p{L}\\p{N}]","中"],1]
+check of ["whole compound negation excludes letter",regex.re_match of [regex.re_compile of "[^\\p{L}_]","A"],0]
+check of ["whole compound negation admits punctuation",regex.re_match of [regex.re_compile of "[^\\p{L}_]","!"],1]
+check of ["empty scalar complement compiles",regex.re_compile of "[^\\x{0}-\\x{10FFFF}]" != null,true]
+check of ["empty scalar complement never matches",regex.re_search of [regex.re_compile of "[^\\x{0}-\\x{10FFFF}]","A"],null]
+for cat in ["L","Lu","Ll","Lt","Lm","Lo","N","Nd","Nl","No","M","Mn","Mc","Me","C","Cc","Cf","Cs","Co","Z","Zs","Zl","Zp","P","Pc","Pd","Ps","Pe","Pi","Pf","Po","S","Sm","Sc","Sk","So"]:
     local t0 is monotonic_ms of null
     local cp is regex.re_compile of ("\\p{" + cat + "}")
     local elapsed is (monotonic_ms of null) - t0
