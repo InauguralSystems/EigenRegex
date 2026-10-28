@@ -1,0 +1,1 @@
+- `re_match` now tries every anchored alternative that can consume the entire string, matching RE2 FullMatch semantics (#50).

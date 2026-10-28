@@ -51,6 +51,15 @@ def add(feature,pattern,subjects,operation='search'):
  for subject in subjects:
   if operation=='replace':
    CASES.append({'feature':feature,'pattern':pattern,'compile_ok':True,'operation':operation,'subject':subject,'replacement':'#','output':rx.sub('#',subject)}); continue
+  if operation=='fullmatch':
+   m=rx.fullmatch(subject)
+   # Python and google-re2 are independent oracles for this contract.  Refuse
+   # to generate a fixture unless both choose identical captures.
+   py=re.fullmatch(pattern,subject)
+   rs=spans(subject,m,rx) if m else None
+   ps=[bytepos(subject,x) for pair in [py.span(),*[py.span(i) for i in range(1,rx.groups+1)]] for x in pair] if py else None
+   if rs != ps: raise SystemExit(f'fullmatch oracles disagree: {pattern!r} on {subject!r}: google-re2={rs}, python={ps}')
+   CASES.append({'feature':feature,'pattern':pattern,'compile_ok':True,'operation':operation,'subject':subject,'spans':rs}); continue
   if operation=='find_all':
    data=subject; found=[]; pos=0
    while pos <= len(data):
@@ -93,6 +102,13 @@ def properties():
   for form in forms:
    add('compound_property_class',form%token,compound_subjects)
 def main(eigenscript=None):
+ # Full-string priority is not leftmost-first search followed by an end check:
+ # shorter preferred alternatives must be bypassed if only a later one ends at
+ # the subject boundary.  Capture rows also pin the surviving path's priority.
+ for pattern,subject in [
+  ('a|ab','ab'),('ab|a','ab'),('a*?','aaa'),('a|',''),('|a','a'),
+  ('(a)|(ab)','ab'),('(ab)|(a)','ab'),('((a)|ab)','ab')]:
+  add('fullmatch',pattern,[subject],operation='fullmatch')
  # Existing feature families, all evaluated directly by RE2.
  for word in ['cat','dog','a1','x_y','Z9']:
   for f in [r'\b%s\b',r'^\b%s\b$',r'(\b%s\b)',r'\b(%s)\b',r'\b%s\b!',r'!\b%s\b',r'(\b%s\b|never)',r'(never|\b%s\b)',r'\b%s+\b',r'\b%s\b.*']:

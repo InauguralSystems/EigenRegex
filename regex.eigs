@@ -1214,7 +1214,7 @@ define _addthread(tlist, seen, pc, saves, sp, n, prog, mstart, text) as:
 # kill clist[i+1..] (lower priority) but continue stepping — earlier
 # threads in this step may have queued higher-priority nlist work whose
 # later MATCH overrides the current one.
-define _try_match_at(prog, text, start, n_slots) as:
+define _try_match_at(prog, text, start, n_slots, require_end) as:
     local n is len of text
     local plen is len of prog
     local clist is []
@@ -1240,6 +1240,13 @@ define _try_match_at(prog, text, start, n_slots) as:
             local inst is prog[pc]
             local op is inst[0]
             if op == "match":
+                # FullMatch is not "take a leftmost-first match, then inspect
+                # its end".  A higher-priority short alternative must be
+                # ignored when it does not consume the whole subject, leaving
+                # lower-priority threads (for example `ab` in `a|ab`) alive.
+                if require_end == 1 and sp != n:
+                    i is i + 1
+                    continue
                 matched is 1
                 matched_sp is sp
                 matched_saves is saves
@@ -1458,10 +1465,8 @@ define _rx_vm_run(args) as:
     local n_slots is prog["n_slots"]
     local n is len of text
     if anchored == 1:
-        local result is _try_match_at of [code, text, start, n_slots]
+        local result is _try_match_at of [code, text, start, n_slots, 1]
         if result == null:
-            return null
-        if result[0] != n:
             return null
         return _build_result of [start, result[0], result[1]]
     # Search: single linear pass with an implicit .*? prefix (leftmost match).

@@ -1,0 +1,16 @@
+import regex
+load_file of "tests/re2_expected.eigs"
+
+# These generated rows contain byte spans (including capture spans) agreed by
+# google-re2 FullMatch and Python fullmatch.  re_match exposes the boolean
+# projection of that same full-string decision.
+for c in re2_diff_cases:
+    if c.feature == "fullmatch":
+        local expected is 0
+        if c.spans != null:
+            expected is 1
+        local got is regex.re_match of [regex.re_compile of c.pattern,c.subject]
+        if got == expected:
+            print of ("fullmatch " + c.pattern + " OK")
+        else:
+            print of ("fullmatch " + c.pattern + " FAIL")
