@@ -41,12 +41,12 @@ for contract in [["(?<=(a))Z","capture group inside lookbehind"],["(?<=(?P<x>a))
 
 local case_count is len of lookaround_cases
 local pattern_count is len of (keys of seen_names)
-if case_count < 1662 or pattern_count < 216:
+if case_count < 2100 or pattern_count < 350:
     failures is failures + 1
     print of ("lookaround fixture population cases=" + (str of case_count) + " patterns=" + (str of pattern_count) + " FAIL")
 else:
     print of ("lookaround fixture population cases=" + (str of case_count) + " patterns=" + (str of pattern_count) + " OK")
-if lookaround_floors.agree_patterns < 120 or lookaround_floors.v8_only_patterns < 40 or lookaround_floors.positive_lookbehind < 30 or lookaround_floors.negative_lookbehind < 30 or lookaround_floors.refusals < 20:
+if lookaround_floors.class_a_patterns < 200 or lookaround_floors.v8_only_patterns < 40 or lookaround_floors.positive_lookahead < 30 or lookaround_floors.negative_lookahead < 30 or lookaround_floors.positive_lookbehind < 30 or lookaround_floors.negative_lookbehind < 30 or lookaround_floors.nested < 30 or lookaround_floors.ahead_in_behind < 30 or lookaround_floors.behind_in_ahead < 30 or lookaround_floors.same_kind_nested < 30 or lookaround_floors.depth3 < 30 or lookaround_floors.body_anchor_boundary < 30 or lookaround_floors.zero_width_find_all < 30 or lookaround_floors.zero_width_replace < 30 or lookaround_floors.utf8_2byte < 30 or lookaround_floors.utf8_3byte < 30 or lookaround_floors.utf8_4byte < 30 or lookaround_floors.refusals < 20:
     failures is failures + 1
     print of "lookaround fixture floors FAIL"
 else:
