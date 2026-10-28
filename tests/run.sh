@@ -35,14 +35,14 @@ else
 fi
 
 echo "---"
-# Issue #35 pathological Pike-VM scaling gate (four doubling sizes).
-out=$("$EIGS" tests/test_re2_linear.eigs 2>&1); rc=$?
+# Issue #35/#51 pathological Pike-VM scaling gate (Cachegrind Ir).
+out=$(EIGENSCRIPT="$EIGS" bash tests/test_re2_linear.sh 2>&1); rc=$?
 printf '%s\n' "$out"
 if [ "$rc" -ne 0 ] || printf '%s\n' "$out" | grep -q 'FAIL'; then
-    echo "FAIL: test_re2_linear.eigs"
+    echo "FAIL: test_re2_linear.sh"
     fail=1
 else
-    echo "PASS: test_re2_linear.eigs"
+    echo "PASS: test_re2_linear.sh"
 fi
 
 echo "---"

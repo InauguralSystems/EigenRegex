@@ -1,52 +1,29 @@
 import regex
-failures is 0
-define sample(p, s) as:
-    local t0 is monotonic_ms of null
-    for k in range of 8:
-        regex.re_search of [p, s]
-    return (monotonic_ms of null) - t0
-define timed(pat, n) as:
-    local s is ""
-    for i in range of n:
-        s is s + "a"
-    local p is regex.re_compile of pat
-    # Compile and VM warm-up are deliberately outside every measured window.
-    regex.re_search of [p, s]
-    local ms is sample of [p, s]
-    # Minimum of four trials reduces scheduler/noise spikes without masking
-    # super-linear work: every trial searches exactly the same size-n input.
-    for trial in range of 3:
-        local candidate is sample of [p, s]
-        if candidate < ms:
-            ms is candidate
-    return ms
-for row in [["boundary","(\\b|a|aa)*z"],["casefold","(?i)(a|aa)*Z"],["named","(?P<x>a|aa)*z"]]:
-    # Pick a machine-appropriate starting point.  Timing floors describe the
-    # runner, not the engine, so being too fast must never fail this gate.
-    local start is 300
-    local calibration_ms is timed of [row[1],start]
-    loop while calibration_ms < 50 and start < 9600:
-        start is start * 2
-        calibration_ms is timed of [row[1],start]
-    if calibration_ms < 50:
-        print of ("calibration feature=" + row[0] + " start=" + (str of start) + " ms=" + (str of calibration_ms) + " NOTE floor not reached")
-    else:
-        print of ("calibration feature=" + row[0] + " start=" + (str of start) + " ms=" + (str of calibration_ms))
 
-    local prior is 0
-    local n is start
-    for measurement in range of 5:
-        local ms is timed of [row[1],n]
-        print of ("timing feature=" + row[0] + " size=" + (str of n) + " ms=" + (str of ms))
-        if prior > 0:
-            local ratio is ms / prior
-            local margin is 2.6 - ratio
-            print of ("timing feature=" + row[0] + " size=" + (str of n) + " ratio=" + (str of ratio) + " margin=" + (str of margin))
-            if ratio > 2.6:
-                print of ("linear ratio " + row[0] + " FAIL")
-                failures is failures + 1
-            else:
-                print of ("linear ratio " + row[0] + " OK")
-        prior is ms
-        n is n * 2
-print of ("failures: " + (str of failures))
+# One deterministic measurement process. The shell helper runs this exact
+# program both with and without the re_search call and subtracts Cachegrind Ir.
+local a is args of null
+if (len of a) != 3:
+    print of "usage: test_re2_linear.eigs CALL|BASE ROW SIZE FAIL"
+else:
+    local mode is a[0]
+    local row is num of a[1]
+    local n is num of a[2]
+    local names is ["boundary", "casefold", "named"]
+    local patterns is ["(\\b|a|aa)*z", "(?i)(a|aa)*Z", "(?P<x>a|aa)*z"]
+    local expected is null
+    local subject is ""
+    for i in range of n:
+        subject is subject + "a"
+    local program is regex.re_compile of patterns[row]
+    if program == null:
+        print of ("compile feature=" + names[row] + " FAIL")
+    else:
+        print of ("compile feature=" + names[row] + " OK")
+        local actual is expected
+        if mode == "CALL":
+            actual is regex.re_search of [program, subject]
+        if actual == expected:
+            print of ("result feature=" + names[row] + " size=" + (str of n) + " value=null OK")
+        else:
+            print of ("result feature=" + names[row] + " size=" + (str of n) + " expected=null actual=" + (str of actual) + " FAIL")

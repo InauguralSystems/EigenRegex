@@ -18,6 +18,7 @@ RUN apt-get update \
         build-essential \
         ca-certificates \
         git \
+        valgrind \
  && rm -rf /var/lib/apt/lists/*
 
 # Build + install EigenScript at the pinned tag onto /usr/local (binary on

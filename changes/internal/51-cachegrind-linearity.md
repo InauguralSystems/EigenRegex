@@ -1,0 +1,1 @@
+- The regex linearity gate now checks deterministic Cachegrind instruction counts and validates compilation and results (#51).
