@@ -110,6 +110,41 @@ if (len of pvs) > 0:
     got_nonempty is 1
 check of ["program view highlights active threads", got_nonempty, 1]
 
+# ---- highlight palette: absent keys fall back; active-theme keys restyle ----
+# The pinned lib/ui themes intentionally have none of these app-local keys.
+fallback_colors_ok is 1
+for i in range of (len of got_spans):
+    if want_spans[i].kind == "group":
+        if got_spans[i].bg != [90, 70, 30]:
+            fallback_colors_ok is 0
+    else:
+        if got_spans[i].bg != [40, 90, 60]:
+            fallback_colors_ok is 0
+for i in range of (len of pvs):
+    if pvs[i].bg != [50, 70, 110]:
+        fallback_colors_ok is 0
+check of ["missing regex theme keys use fallback span colors", fallback_colors_ok, 1]
+
+active_theme is theme of null
+active_theme.regex_match_bg is [1, 2, 3]
+active_theme.regex_group_bg is [4, 5, 6]
+active_theme.regex_pc_bg is [7, 8, 9]
+refresh of null
+themed_colors_ok is 1
+got_spans is T.hl_view.spans
+for i in range of (len of got_spans):
+    if want_spans[i].kind == "group":
+        if got_spans[i].bg != [4, 5, 6]:
+            themed_colors_ok is 0
+    else:
+        if got_spans[i].bg != [1, 2, 3]:
+            themed_colors_ok is 0
+pvs is T.prog_view.spans
+for i in range of (len of pvs):
+    if pvs[i].bg != [7, 8, 9]:
+        themed_colors_ok is 0
+check of ["active regex theme keys restyle emitted spans", themed_colors_ok, 1]
+
 # ---- clicking > advances the step ----
 dispatch of [T.root, {"type": "mousedown", "button": 1, "x": 60, "y": 250}]
 dispatch of [T.root, {"type": "mouseup", "button": 1, "x": 60, "y": 250}]

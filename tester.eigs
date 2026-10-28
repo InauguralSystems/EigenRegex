@@ -26,10 +26,15 @@ import tester_core
 TESTER_W is 900
 TESTER_H is 640
 
-# span colors (explicit per-span; theme layer arrives with the shell pass)
-MATCH_BG is [40, 90, 60]
-GROUP_BG is [90, 70, 30]
-PC_BG is [50, 70, 110]
+# App-local counterpart of lib/ui's private `_theme_color`.  Keeping the
+# lookup here lets old/custom theme dicts use today's palette as a fallback,
+# while a theme can opt into the regex highlight roles.  Use the public
+# theme() accessor rather than coupling the tester to lib/ui private state.
+define tester_theme_color(key, fallback) as:
+    local c is (theme of null)[key]
+    if c == null:
+        return fallback
+    return c
 
 # ---- all mutable tester state (the _ui pattern) ----
 T is {
@@ -96,7 +101,8 @@ define show_step(n) as:
         ttext is ttext + f"pc {th.pc}  {th.op}  from {th.mstart}  {th.outcome}\n"
         local o0 is (pl.offs)[th.pc]
         local o1 is (pl.offs)[th.pc + 1]
-        append of [pspans, {"start": o0, "end": o1 - 1, "bg": PC_BG, "fg": null}]
+        local bg is tester_theme_color of ["regex_pc_bg", [50, 70, 110]]
+        append of [pspans, {"start": o0, "end": o1 - 1, "bg": bg, "fg": null}]
     T.threads_view.text is ttext
     T.prog_view.text is pl.text
     T.prog_view.spans is pspans
@@ -116,9 +122,9 @@ define refresh(n) as:
     local sp is ev.spans
     for i in range of (len of sp):
         local s is sp[i]
-        local bg is MATCH_BG
+        local bg is tester_theme_color of ["regex_match_bg", [40, 90, 60]]
         if s.kind == "group":
-            bg is GROUP_BG
+            bg is tester_theme_color of ["regex_group_bg", [90, 70, 30]]
         append of [vspans, {"start": s.start, "end": s.end, "bg": bg, "fg": null}]
     T.hl_view.spans is vspans
     if ev.ok == 0:
