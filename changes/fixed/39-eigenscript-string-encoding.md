@@ -1,0 +1,1 @@
+- The RE2 fixture generator now emits only valid EigenScript string escapes and refuses unrepresentable scalars (#39).
