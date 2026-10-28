@@ -1,0 +1,1 @@
+- The regex tester's match, group, and program-counter highlights now follow active theme keys with backward-compatible palette fallbacks (#22).
