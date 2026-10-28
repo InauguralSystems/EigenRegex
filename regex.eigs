@@ -100,6 +100,42 @@ define _advance_scalar(st) as:
         i is i + 1
     return [cp, bs]
 
+define _hex_digit_value(c) as:
+    local cp is ord of c
+    if cp >= 48 and cp <= 57:
+        return cp - 48
+    if cp >= 65 and cp <= 70:
+        return cp - 55
+    if cp >= 97 and cp <= 102:
+        return cp - 87
+    return -1
+
+# Consume a scalar class endpoint, including RE2's \x{...} notation.
+define _advance_class_scalar(st) as:
+    if (_peek of st) != "\\":
+        return _advance_scalar of st
+    _advance of st
+    if (_peek of st) != "x":
+        st["pos"] is st["pos"] - 1
+        return _advance_scalar of st
+    _advance of st
+    if (_peek of st) != "{":
+        return [-1, []]
+    _advance of st
+    local cp is 0
+    local digits is 0
+    loop while (_peek of st) != "}":
+        local value is _hex_digit_value of (_peek of st)
+        if value < 0 or digits >= 6:
+            return [-1, []]
+        cp is cp * 16 + value
+        digits is digits + 1
+        _advance of st
+    if digits == 0 or cp > 1114111:
+        return [-1, []]
+    _advance of st
+    return [cp, []]
+
 # ---- _peek2: char after the current one, or "" ----
 define _peek2(st) as:
     if (st["pos"] + 1) >= (len of st["src"]):
@@ -266,6 +302,8 @@ define _unicode_ast(rs) as:
                 i is i + 1
             append of [grouped, ["alt", chunk]]
         branches is grouped
+    if (len of branches) == 0:
+        return ["never"]
     if (len of branches) == 1:
         return branches[0]
     return ["alt", branches]
@@ -363,9 +401,7 @@ define _lower_scalar_class(ranges, neg, icase) as:
         ranges is _unicode_complement of ranges
     return _unicode_ast of ranges
 
-_unicode_property_asts is {}
-
-define _parse_unicode_property(st, neg) as:
+define _parse_unicode_property_ranges(st, neg) as:
     if (_peek of st) != "{":
         return null
     _advance of st
@@ -380,16 +416,25 @@ define _parse_unicode_property(st, neg) as:
         # loaded only when the first property escape is actually parsed.
         load_file of "unicode_categories.eigs"
         _unicode_property_ranges is _generated_unicode_property_ranges of null
-    local key is name + ":" + (str of st["icase"])
-    if neg == 1:
-        key is "!" + key
-    # M and Pc are present only for capture-name validation.  Properties other
-    # than the documented public subset remain a loud exclusion until #38.
-    if not (has_key of [_unicode_property_ranges, name]) or name == "M" or name == "Pc":
+    if not (has_key of [_unicode_property_ranges, name]):
         _rx_error is "unknown Unicode property: " + name
         return null
+    local ranges is _unicode_property_ranges[name]
+    if neg == 1:
+        ranges is _unicode_complement of ranges
+    return [name, ranges]
+
+_unicode_property_asts is {}
+define _parse_unicode_property(st, neg) as:
+    # Fold the positive property before complementing it.  RE2's (?i)\P{Lu}
+    # excludes the entire simple-fold closure of Lu, rather than folding its
+    # already-complemented set.
+    local property is _parse_unicode_property_ranges of [st, 0]
+    if property == null:
+        return null
+    local key is property[0] + ":" + (str of neg) + ":" + (str of st["icase"])
     if not (has_key of [_unicode_property_asts, key]):
-        _unicode_property_asts[key] is _lower_scalar_class of [_unicode_property_ranges[name], neg, st["icase"]]
+        _unicode_property_asts[key] is _lower_scalar_class of [property[1], neg, st["icase"]]
     return _unicode_property_asts[key]
 
 # Forward declarations via mutual recursion are fine in EigenScript
@@ -406,24 +451,6 @@ define _parse_class(st) as:
     if (_peek of st) == "^":
         _advance of st
         neg is 1
-    # A property is compiled as complete UTF-8 sequences; negating the scalar
-    # before expansion prevents the classic continuation-byte negation bug.
-    if (_peek of st) == "\\" and ((_peek2 of st) == "p" or (_peek2 of st) == "P"):
-        _advance of st
-        local pe is _advance of st
-        local pn is neg
-        if pe == "P":
-            if pn == 1:
-                pn is 0
-            else:
-                pn is 1
-        local property is _parse_unicode_property of [st, pn]
-        if property == null or (_peek of st) != "]":
-            if property != null:
-                _rx_error is "Unicode property escapes cannot be combined in a character class"
-            return null
-        _advance of st
-        return property
     local ranges is []
     loop while 1:
         local c is _peek of st
@@ -433,8 +460,17 @@ define _parse_class(st) as:
             _advance of st
             break
         if c == "\\" and ((_peek2 of st) == "p" or (_peek2 of st) == "P"):
-            _rx_error is "Unicode property escapes cannot be combined in a character class"
-            return null
+            _advance of st
+            local pe is _advance of st
+            local pn is 0
+            if pe == "P":
+                pn is 1
+            local property_ranges is _parse_unicode_property_ranges of [st, pn]
+            if property_ranges == null:
+                return null
+            for pr in property_ranges[1]:
+                append of [ranges, pr]
+            continue
         if c == "[":
             if (_peek2 of st) == ":":
                 # POSIX class: [:name:] — expand to ranges and continue.
@@ -458,7 +494,7 @@ define _parse_class(st) as:
                 for pr in prs:
                     append of [ranges, pr]
                 continue
-        local lo_scalar is _advance_scalar of st
+        local lo_scalar is _advance_class_scalar of st
         local lo is lo_scalar[0]
         if lo < 0:
             return null
@@ -469,7 +505,7 @@ define _parse_class(st) as:
                 append of [ranges, [45, 45]]
                 _advance of st
                 break
-            local hi_scalar is _advance_scalar of st
+            local hi_scalar is _advance_class_scalar of st
             local hi is hi_scalar[0]
             if hi < 0:
                 return null
@@ -834,6 +870,9 @@ define _compile_node(node, prog) as:
         _emit of [prog, ["class", 0, node[1], 0]]
         return 0
     if tag == "empty":
+        return 0
+    if tag == "never":
+        _emit of [prog, ["fail"]]
         return 0
     if tag == "concat":
         local children is node[1]
