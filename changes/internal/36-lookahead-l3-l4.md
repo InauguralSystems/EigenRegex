@@ -1,0 +1,1 @@
+- Added mutation self-tests and documented instruction-count regression evidence for linear-time lookahead (#36).
