@@ -146,23 +146,23 @@ for i in range of (len of pvs):
 check of ["active regex theme keys restyle emitted spans", themed_colors_ok, 1]
 
 # ---- clicking > advances the step ----
-dispatch of [T.root, {"type": "mousedown", "button": 1, "x": 60, "y": 250}]
-dispatch of [T.root, {"type": "mouseup", "button": 1, "x": 60, "y": 250}]
+ui_dispatch of [T.root, {"type": "mousedown", "button": 1, "x": 60, "y": 250}]
+ui_dispatch of [T.root, {"type": "mouseup", "button": 1, "x": 60, "y": 250}]
 got_prefix is substr of [stl.text, 0, 7]
 check of ["next button advances to step 2", got_prefix, "step 2/"]
 
 # ---- clicking < steps back ----
-dispatch of [T.root, {"type": "mousedown", "button": 1, "x": 16, "y": 250}]
-dispatch of [T.root, {"type": "mouseup", "button": 1, "x": 16, "y": 250}]
+ui_dispatch of [T.root, {"type": "mousedown", "button": 1, "x": 16, "y": 250}]
+ui_dispatch of [T.root, {"type": "mouseup", "button": 1, "x": 16, "y": 250}]
 got_prefix is substr of [stl.text, 0, 7]
 check of ["prev button returns to step 1", got_prefix, "step 1/"]
 
 # ---- typing in the pattern re-evaluates live ----
 # Click to focus, jump to end, append "x": "(a+)(b?)cx" matches nothing.
-dispatch of [T.root, {"type": "mousedown", "button": 1, "x": 110, "y": 50}]
-dispatch of [T.root, {"type": "mouseup", "button": 1, "x": 110, "y": 50}]
-dispatch of [T.root, {"type": "keydown", "key": "end"}]
-dispatch of [T.root, {"type": "keydown", "key": "x"}]
+ui_dispatch of [T.root, {"type": "mousedown", "button": 1, "x": 110, "y": 50}]
+ui_dispatch of [T.root, {"type": "mouseup", "button": 1, "x": 110, "y": 50}]
+ui_dispatch of [T.root, {"type": "keydown", "key": "end"}]
+ui_dispatch of [T.root, {"type": "keydown", "key": "x"}]
 pi is T.pattern_in
 check of ["keystroke reached the pattern input", pi.text, "(a+)(b?)cx"]
 check of ["live re-eval on keystroke", sl.text, "0 match(es)"]
