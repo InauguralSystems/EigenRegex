@@ -4,7 +4,7 @@ set -uo pipefail
 EIGS="${EIGENSCRIPT:-eigenscript}"
 cd "$(dirname "$0")/.."
 fail=0
-for probe in negated icase shorthand property replace; do
+for probe in negated icase shorthand property replace name; do
     out=$("$EIGS" "tests/cold_start/$probe.eigs" 2>&1); rc=$?
     printf '%s\n' "$out"
     if [ "$rc" -ne 0 ] || printf '%s\n' "$out" | grep -q 'FAIL'; then

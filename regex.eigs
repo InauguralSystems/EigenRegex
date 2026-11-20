@@ -44,8 +44,7 @@ define _capture_name_code(cp) as:
     if cp < 128:
         return _ascii_word_code of cp
     if _unicode_property_ranges == null:
-        load_file of "unicode_categories.eigs"
-        _unicode_property_ranges is _generated_unicode_property_ranges of null
+        _unicode_property_ranges is load_file of "unicode_categories.eigs"
     for cat in ["L", "Nd", "Nl", "M", "Pc"]:
         if _in_ranges of [cp, _unicode_property_ranges[cat]]:
             return 1
@@ -446,8 +445,7 @@ define _parse_unicode_property_ranges(st, neg) as:
     if _unicode_property_ranges == null:
         # Keep ordinary `import regex` cheap; the generated range table is
         # loaded only when the first property escape is actually parsed.
-        load_file of "unicode_categories.eigs"
-        _unicode_property_ranges is _generated_unicode_property_ranges of null
+        _unicode_property_ranges is load_file of "unicode_categories.eigs"
     if not (has_key of [_unicode_property_ranges, name]):
         _rx_error is "unknown Unicode property: " + name
         return null
@@ -1285,8 +1283,7 @@ define _ensure_case_tables(_) as:
         return null
     # EigenScript#1873 still compiles this literal target eagerly, but its data
     # is evaluated and retained only on the first ignore-case compilation.
-    load_file of "unicode_casefold.eigs"
-    _case_scalar_tables is _generated_case_scalar_tables of null
+    _case_scalar_tables is load_file of "unicode_casefold.eigs"
     _case_folds is []
     _case_byte_tables is []
     for table in _case_scalar_tables:
